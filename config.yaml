@@ -1,0 +1,21 @@
+name: HA Status Bot
+version: "1.0.0"
+slug: ha_status_bot
+description: Bot de Telegram para consultar luces y sensores de Home Assistant
+arch:
+  - aarch64
+startup: services
+boot: auto
+init: false
+
+homeassistant_api: true
+
+options:
+  telegram_token: ""
+  allowed_chat_ids: ""
+  low_battery_threshold: 20
+
+schema:
+  telegram_token: str
+  allowed_chat_ids: str
+  low_battery_threshold: int

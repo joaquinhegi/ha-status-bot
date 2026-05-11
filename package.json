@@ -1,0 +1,9 @@
+{
+  "name": "ha-status-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.js",
+  "dependencies": {
+    "node-telegram-bot-api": "^0.66.0"
+  }
+}
