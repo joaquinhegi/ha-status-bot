@@ -1,5 +1,9 @@
 # 🏠 HA Status Bot
 
+![Tests](https://github.com/joaquinhegi/ha-status-bot/actions/workflows/tests.yml/badge.svg)
+![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
 Bot de **Telegram** que se conecta a **Home Assistant** como add-on del Supervisor y permite consultar el estado del hogar directamente desde una conversación de Telegram: luces encendidas, sensores activos, puertas/ventanas abiertas, baterías bajas y temperaturas.
 
 ---
