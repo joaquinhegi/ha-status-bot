@@ -23,21 +23,4 @@ jobs:
         run: npm test
 
       - name: Run coverage
-        run: |
-          node --test --experimental-test-coverage tests/*.test.js 2>&1 | tee coverage-output.txt
-          # Extract coverage percentage for badge
-          COVERAGE=$(grep 'all files' coverage-output.txt | awk -F'|' '{gsub(/ /,"",$2); print $2}')
-          echo "COVERAGE=$COVERAGE" >> "$GITHUB_ENV"
-
-      - name: Create coverage badge
-        uses: schneegans/dynamic-badges-action@v1.7.0
-        if: github.ref == 'refs/heads/main'
-        with:
-          auth: ${{ secrets.GIST_TOKEN }}
-          gistID: ${{ vars.COVERAGE_GIST_ID }}
-          filename: ha-status-bot-coverage.json
-          label: coverage
-          message: ${{ env.COVERAGE }}
-          valColorRange: ${{ env.COVERAGE }}
-          minColorRange: 50
-          maxColorRange: 100
+        run: node --test --experimental-test-coverage tests/*.test.js
