@@ -1,7 +1,7 @@
 # 🏠 HA Status Bot
 
 ![Tests](https://github.com/joaquinhegi/ha-status-bot/actions/workflows/tests.yml/badge.svg)
-![Version](https://img.shields.io/badge/version-1.0.0-orange)
+![Version](https://img.shields.io/github/v/tag/joaquinhegi/ha-status-bot?label=version&color=orange)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
