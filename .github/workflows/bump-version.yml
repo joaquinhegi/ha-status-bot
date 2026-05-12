@@ -44,7 +44,7 @@ jobs:
           git checkout -b "$BRANCH"
           git add package.json config.yaml
           git commit -m "bump: v${{ inputs.version }}"
-          git push origin "$BRANCH"
+          git push origin "$BRANCH" --force
           gh pr create \
             --title "bump: v${{ inputs.version }}" \
             --body "Actualiza versión a **${{ inputs.version }}** en \`package.json\` y \`config.yaml\`.\n\nAl mergear esta PR, se creará automáticamente el tag \`v${{ inputs.version }}\`." \
