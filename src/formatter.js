@@ -26,6 +26,30 @@ export function getLightsOn(states) {
     .map(friendlyName);
 }
 
+export function getAllLights(states) {
+  return states
+    .filter((e) => e.entity_id.startsWith("light."))
+    .filter((e) => !isUnavailable(e))
+    .sort(byFriendlyName)
+    .map((e) => ({
+      entity_id: e.entity_id,
+      name: friendlyName(e),
+      state: e.state,
+    }));
+}
+
+export function getAllCovers(states) {
+  return states
+    .filter((e) => e.entity_id.startsWith("cover."))
+    .filter((e) => !isUnavailable(e))
+    .sort(byFriendlyName)
+    .map((e) => ({
+      entity_id: e.entity_id,
+      name: friendlyName(e),
+      state: e.state,
+    }));
+}
+
 export function getActiveBinarySensors(states) {
   return states
     .filter((e) => e.entity_id.startsWith("binary_sensor."))
