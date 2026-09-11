@@ -63,4 +63,4 @@ language-selection option.
 - Added: `/start` and `/help` are now gated by `allowed_chat_ids`, like every other command.
 - Added: graceful shutdown — `SIGTERM`/`SIGINT` (sent by the Supervisor on add-on stop, restart,
   or update) now stop polling cleanly before the process exits, instead of being killed mid-request.
-- Improved: the test suite grew from 59 to 137 tests.
+- Improved: the test suite grew from 59 to 141 tests.
