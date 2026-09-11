@@ -51,7 +51,7 @@ function buildCameraListKeyboard(cameras) {
 function buildLightKeyboard(lights) {
   return lights.map((light) => {
     const icon = light.state === "on" ? "🟡" : "⚫";
-    const actionLabel = light.state === "on" ? "Apagar" : "Encender";
+    const actionLabel = light.state === "on" ? "Turn off" : "Turn on";
     const action = light.state === "on" ? "light_off" : "light_on";
     return [
       {
@@ -66,7 +66,7 @@ function buildCoverKeyboard(covers) {
   return covers.map((cover) => {
     const isOpen = cover.state === "open";
     const icon = isOpen ? "🟢" : "🔴";
-    const actionLabel = isOpen ? "Cerrar" : "Abrir";
+    const actionLabel = isOpen ? "Close" : "Open";
     const action = isOpen ? "cover_close" : "cover_open";
     return [
       {
@@ -81,19 +81,19 @@ function cameraOptionsKeyboard(entityId) {
   return [
     [
       {
-        text: "🖼️ Enviar imagen",
+        text: "🖼️ Send photo",
         callback_data: `camera_img:${entityId}`,
       },
     ],
     [
       {
-        text: "🎥 Enviar video (30s)",
+        text: "🎥 Send video (30s)",
         callback_data: `camera_vid30:${entityId}`,
       },
     ],
     [
       {
-        text: "⬅️ Volver a cámaras",
+        text: "⬅️ Back to cameras",
         callback_data: "camera_list",
       },
     ],
@@ -112,7 +112,7 @@ async function waitForMediaFile(ha, mediaPath, timeoutMs = 45000, intervalMs = 2
         return media;
       }
 
-      lastError = new Error("Archivo multimedia vacío");
+      lastError = new Error("Empty media file");
     } catch (error) {
       lastError = error;
       if (!String(error.message || "").includes("API error 404")) {
@@ -123,7 +123,7 @@ async function waitForMediaFile(ha, mediaPath, timeoutMs = 45000, intervalMs = 2
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 
-  throw lastError || new Error("No se pudo obtener el video a tiempo.");
+  throw lastError || new Error("Could not retrieve the video in time.");
 }
 
 function isExpiredCallbackError(error) {
@@ -136,7 +136,7 @@ async function safeAnswerCallback(bot, callbackId, text) {
     await bot.answerCallbackQuery(callbackId, { text });
   } catch (error) {
     if (isExpiredCallbackError(error)) {
-      console.warn(`[Telegram] Callback expirado al responder: ${text}`);
+      console.warn(`[Telegram] Callback expired while answering: ${text}`);
       return;
     }
 
@@ -146,7 +146,7 @@ async function safeAnswerCallback(bot, callbackId, text) {
 
 function ensureNonEmptyBuffer(buffer, label) {
   if (!buffer || !buffer.length) {
-    throw new Error(`${label} vacío`);
+    throw new Error(`${label} is empty`);
   }
 }
 
@@ -155,16 +155,16 @@ async function waitForSnapshot(ha, entityId) {
 }
 
 async function sendPhotoWithFallback(bot, chatId, buffer, caption, fileName, contentType) {
-  ensureNonEmptyBuffer(buffer, "Imagen");
+  ensureNonEmptyBuffer(buffer, "Image");
 
   try {
     await bot.sendPhoto(chatId, buffer, { caption }, { filename: fileName, contentType });
   } catch (error) {
-    console.warn("[Telegram] sendPhoto falló, envío como documento:", error.message);
+    console.warn("[Telegram] sendPhoto failed, sending as document:", error.message);
     await bot.sendDocument(
       chatId,
       buffer,
-      { caption: `${caption} (enviado como archivo)` },
+      { caption: `${caption} (sent as file)` },
       { filename: fileName, contentType }
     );
   }
@@ -176,11 +176,11 @@ async function sendVideoWithFallback(bot, chatId, buffer, caption, fileName, con
   try {
     await bot.sendVideo(chatId, buffer, { caption }, { filename: fileName, contentType });
   } catch (error) {
-    console.warn("[Telegram] sendVideo falló, envío como documento:", error.message);
+    console.warn("[Telegram] sendVideo failed, sending as document:", error.message);
     await bot.sendDocument(
       chatId,
       buffer,
-      { caption: `${caption} (enviado como archivo)` },
+      { caption: `${caption} (sent as file)` },
       { filename: fileName, contentType }
     );
   }
@@ -240,19 +240,19 @@ export function createTelegramBot({
 
   bot.deleteWebHook({ drop_pending_updates: true }).then(() => {
     bot.startPolling();
-    logger.log("[Telegram] Polling iniciado (webhook eliminado).");
+    logger.log("[Telegram] Polling started (webhook removed).");
   });
 
   async function handleCommand(msg, formatter) {
     const chatId = msg.chat.id;
     const cmdText = msg.text;
-    console.log(`[Telegram] Comando recibido: ${cmdText} de chat_id=${chatId}`);
+    console.log(`[Telegram] Command received: ${cmdText} from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
       await bot.sendMessage(
         chatId,
-        `No autorizado. Tu chat_id es: ${chatId}`
+        `Not authorized. Your chat_id is: ${chatId}`
       );
       return;
     }
@@ -261,66 +261,66 @@ export function createTelegramBot({
       const states = await ha.getStates();
       const text = formatter(states);
       await safeReply(bot, chatId, text);
-      console.log(`[Telegram] Respuesta enviada para ${cmdText} a chat_id=${chatId}`);
+      console.log(`[Telegram] Reply sent for ${cmdText} to chat_id=${chatId}`);
     } catch (error) {
-      console.error(`[Telegram] Error procesando ${cmdText}:`, error);
+      console.error(`[Telegram] Error processing ${cmdText}:`, error);
       await bot.sendMessage(
         chatId,
-        `Error consultando Home Assistant: ${error.message}`
+        `Error querying Home Assistant: ${error.message}`
       );
     }
   }
 
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`[Telegram] /start de chat_id=${chatId}`);
+    console.log(`[Telegram] /start from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
-      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
       return;
     }
 
     await bot.sendMessage(
       chatId,
       [
-        "Hola 👋",
+        "Hello 👋",
         "",
-        "Comandos disponibles:",
-        "/estado - Resumen general",
-        "/luces - Luces (encender/apagar)",
-        "/persianas - Persianas (abrir/cerrar)",
-        "/camaras - Selección de cámaras",
-        "/sensores - Sensores activos",
-        "/puertas - Puertas y ventanas abiertas",
-        "/bateria - Baterías bajas",
-        "/temp - Temperaturas",
-        "/chatid - Ver tu chat_id",
+        "Available commands:",
+        "/status - General summary",
+        "/lights - Lights (turn on/off)",
+        "/covers - Covers (open/close)",
+        "/cameras - Camera selection",
+        "/sensors - Active sensors",
+        "/doors - Open doors and windows",
+        "/battery - Low batteries",
+        "/temperature - Temperatures",
+        "/chatid - View your chat_id",
       ].join("\n")
     );
   });
 
   bot.onText(/\/help/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`[Telegram] /help de chat_id=${chatId}`);
+    console.log(`[Telegram] /help from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
-      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
       return;
     }
 
     await bot.sendMessage(
       chatId,
       [
-        "Comandos:",
-        "/estado",
-        "/luces",
-        "/camaras",
-        "/sensores",
-        "/puertas",
-        "/bateria",
-        "/temp",
+        "Commands:",
+        "/status",
+        "/lights",
+        "/cameras",
+        "/sensors",
+        "/doors",
+        "/battery",
+        "/temperature",
         "/chatid",
       ].join("\n")
     );
@@ -331,127 +331,127 @@ export function createTelegramBot({
   // isAllowed(...) check here — see the bot-authorization spec, requirement
   // "/chatid Stays Ungated By Design".
   bot.onText(/\/chatid/, async (msg) => {
-    console.log(`[Telegram] /chatid de chat_id=${msg.chat.id}`);
-    await bot.sendMessage(msg.chat.id, `Tu chat_id es: ${msg.chat.id}`);
+    console.log(`[Telegram] /chatid from chat_id=${msg.chat.id}`);
+    await bot.sendMessage(msg.chat.id, `Your chat_id is: ${msg.chat.id}`);
   });
 
-  bot.onText(/\/estado/, (msg) => {
-    console.log(`[Telegram] /estado de chat_id=${msg.chat.id}`);
+  bot.onText(/\/status/, (msg) => {
+    console.log(`[Telegram] /status from chat_id=${msg.chat.id}`);
     return handleCommand(msg, (states) =>
       formatFullStatus(states, lowBatteryThreshold)
     );
   });
 
-  bot.onText(/\/luces/, async (msg) => {
+  bot.onText(/\/lights/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`[Telegram] /luces de chat_id=${chatId}`);
+    console.log(`[Telegram] /lights from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
-      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
       return;
     }
 
     try {
       const states = await ha.getStates();
       const lights = getAllLights(states);
-      console.log(`[Telegram] /luces: ${lights.length} luces encontradas`);
+      console.log(`[Telegram] /lights: ${lights.length} lights found`);
 
       if (!lights.length) {
-        await bot.sendMessage(chatId, "💡 No hay luces disponibles.");
+        await bot.sendMessage(chatId, "💡 No lights available.");
         return;
       }
 
       const keyboard = buildLightKeyboard(lights);
 
-      await bot.sendMessage(chatId, "💡 Luces:", {
+      await bot.sendMessage(chatId, "💡 Lights:", {
         reply_markup: { inline_keyboard: keyboard },
       });
     } catch (error) {
-      console.error("[Telegram] Error procesando /luces:", error);
-      await bot.sendMessage(chatId, `Error consultando Home Assistant: ${error.message}`);
+      console.error("[Telegram] Error processing /lights:", error);
+      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
     }
   });
 
-  bot.onText(/\/sensores/, (msg) => {
-    console.log(`[Telegram] /sensores de chat_id=${msg.chat.id}`);
+  bot.onText(/\/sensors/, (msg) => {
+    console.log(`[Telegram] /sensors from chat_id=${msg.chat.id}`);
     return handleCommand(msg, formatSensors);
   });
 
-  bot.onText(/\/puertas/, (msg) => {
-    console.log(`[Telegram] /puertas de chat_id=${msg.chat.id}`);
+  bot.onText(/\/doors/, (msg) => {
+    console.log(`[Telegram] /doors from chat_id=${msg.chat.id}`);
     return handleCommand(msg, formatDoors);
   });
 
-  bot.onText(/\/bateria/, (msg) => {
-    console.log(`[Telegram] /bateria de chat_id=${msg.chat.id}`);
+  bot.onText(/\/battery/, (msg) => {
+    console.log(`[Telegram] /battery from chat_id=${msg.chat.id}`);
     return handleCommand(msg, (states) =>
       formatBatteries(states, lowBatteryThreshold)
     );
   });
 
-  bot.onText(/\/temp/, (msg) => {
-    console.log(`[Telegram] /temp de chat_id=${msg.chat.id}`);
+  bot.onText(/\/temperature/, (msg) => {
+    console.log(`[Telegram] /temperature from chat_id=${msg.chat.id}`);
     return handleCommand(msg, formatTemperatures);
   });
 
-  bot.onText(/\/persianas/, async (msg) => {
+  bot.onText(/\/covers/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`[Telegram] /persianas de chat_id=${chatId}`);
+    console.log(`[Telegram] /covers from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
-      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
       return;
     }
 
     try {
       const states = await ha.getStates();
       const covers = getAllCovers(states);
-      console.log(`[Telegram] /persianas: ${covers.length} persianas encontradas`);
+      console.log(`[Telegram] /covers: ${covers.length} covers found`);
 
       if (!covers.length) {
-        await bot.sendMessage(chatId, "🪟 No hay persianas disponibles.");
+        await bot.sendMessage(chatId, "🪟 No covers available.");
         return;
       }
 
       const keyboard = buildCoverKeyboard(covers);
 
-      await bot.sendMessage(chatId, "🪟 Persianas:", {
+      await bot.sendMessage(chatId, "🪟 Covers:", {
         reply_markup: { inline_keyboard: keyboard },
       });
     } catch (error) {
-      console.error("[Telegram] Error procesando /persianas:", error);
-      await bot.sendMessage(chatId, `Error consultando Home Assistant: ${error.message}`);
+      console.error("[Telegram] Error processing /covers:", error);
+      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
     }
   });
 
-  bot.onText(/\/camaras/, async (msg) => {
+  bot.onText(/\/cameras/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`[Telegram] /camaras de chat_id=${chatId}`);
+    console.log(`[Telegram] /cameras from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
-      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
       return;
     }
 
     try {
       const states = await ha.getStates();
       const cameras = getAllCameras(states);
-      console.log(`[Telegram] /camaras: ${cameras.length} cámaras encontradas`);
+      console.log(`[Telegram] /cameras: ${cameras.length} cameras found`);
 
       if (!cameras.length) {
-        await bot.sendMessage(chatId, "📷 No hay cámaras disponibles.");
+        await bot.sendMessage(chatId, "📷 No cameras available.");
         return;
       }
 
-      await bot.sendMessage(chatId, "📷 Seleccioná una cámara:", {
+      await bot.sendMessage(chatId, "📷 Select a camera:", {
         reply_markup: { inline_keyboard: buildCameraListKeyboard(cameras) },
       });
     } catch (error) {
-      console.error("[Telegram] Error procesando /camaras:", error);
-      await bot.sendMessage(chatId, `Error consultando Home Assistant: ${error.message}`);
+      console.error("[Telegram] Error processing /cameras:", error);
+      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
     }
   });
 
@@ -460,11 +460,11 @@ export function createTelegramBot({
     const [action, ...payloadParts] = query.data.split(":");
     const entityId = payloadParts.join(":");
     const answer = (text) => safeAnswerCallback(bot, query.id, text);
-    console.log(`[Telegram] Callback: ${action} → ${entityId || "(sin payload)"} de chat_id=${chatId}`);
+    console.log(`[Telegram] Callback: ${action} → ${entityId || "(no payload)"} from chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
-      console.log(`[Telegram] Callback no autorizado: chat_id=${chatId}`);
-      await answer("No autorizado.");
+      console.log(`[Telegram] Unauthorized callback: chat_id=${chatId}`);
+      await answer("Not authorized.");
       return;
     }
 
@@ -473,32 +473,32 @@ export function createTelegramBot({
       const gate = resolveOfferedEntity(action, entityId, states);
 
       if (gate.requiresEntity && !gate.offered) {
-        console.warn(`[Telegram] Entidad no ofrecida rechazada: ${action} -> ${entityId || "(sin payload)"}`);
-        await answer("Entidad no autorizada.");
+        console.warn(`[Telegram] Rejected entity not offered: ${action} -> ${entityId || "(no payload)"}`);
+        await answer("Entity not authorized.");
         return;
       }
 
       if (action === "light_on") {
         await ha.callService("light", "turn_on", { entity_id: entityId });
-        console.log(`[Telegram] Luz encendida: ${entityId}`);
-        await answer("💡 Luz encendida");
+        console.log(`[Telegram] Light turned on: ${entityId}`);
+        await answer("💡 Light turned on");
       } else if (action === "light_off") {
         await ha.callService("light", "turn_off", { entity_id: entityId });
-        console.log(`[Telegram] Luz apagada: ${entityId}`);
-        await answer("💡 Luz apagada");
+        console.log(`[Telegram] Light turned off: ${entityId}`);
+        await answer("💡 Light turned off");
       } else if (action === "cover_open") {
         await ha.callService("cover", "open_cover", { entity_id: entityId });
-        console.log(`[Telegram] Persiana abierta: ${entityId}`);
-        await answer("🪟 Persiana abierta");
+        console.log(`[Telegram] Cover opened: ${entityId}`);
+        await answer("🪟 Cover opened");
       } else if (action === "cover_close") {
         await ha.callService("cover", "close_cover", { entity_id: entityId });
-        console.log(`[Telegram] Persiana cerrada: ${entityId}`);
-        await answer("🪟 Persiana cerrada");
+        console.log(`[Telegram] Cover closed: ${entityId}`);
+        await answer("🪟 Cover closed");
       } else if (action === "camera_pick") {
         const selected = gate.offered;
 
-        await answer(`Cámara: ${selected.name}`);
-        await bot.editMessageText(`📷 ${selected.name}\n\nElegí una opción:`, {
+        await answer(`Camera: ${selected.name}`);
+        await bot.editMessageText(`📷 ${selected.name}\n\nChoose an option:`, {
           chat_id: chatId,
           message_id: query.message.message_id,
           reply_markup: {
@@ -509,17 +509,17 @@ export function createTelegramBot({
       } else if (action === "camera_list") {
         const cameras = getAllCameras(states);
 
-        await answer("Lista de cámaras");
+        await answer("Camera list");
 
         if (!cameras.length) {
-          await bot.editMessageText("📷 No hay cámaras disponibles.", {
+          await bot.editMessageText("📷 No cameras available.", {
             chat_id: chatId,
             message_id: query.message.message_id,
           });
           return;
         }
 
-        await bot.editMessageText("📷 Seleccioná una cámara:", {
+        await bot.editMessageText("📷 Select a camera:", {
           chat_id: chatId,
           message_id: query.message.message_id,
           reply_markup: {
@@ -528,7 +528,7 @@ export function createTelegramBot({
         });
         return;
       } else if (action === "camera_img") {
-        await answer("Enviando imagen...");
+        await answer("Sending photo...");
 
         const selected = gate.offered;
         const snapshot = await waitForSnapshot(ha, entityId);
@@ -542,11 +542,11 @@ export function createTelegramBot({
         );
         return;
       } else if (action === "camera_vid30") {
-        await answer("Grabando video (30s)...");
+        await answer("Recording video (30s)...");
 
         const selected = gate.offered;
 
-        await bot.sendMessage(chatId, `🎥 Grabando 30 segundos de ${selected?.name || entityId}...`);
+        await bot.sendMessage(chatId, `🎥 Recording 30 seconds of ${selected?.name || entityId}...`);
 
         try {
           const clip = await ha.recordCameraClip(entityId, 30);
@@ -564,7 +564,7 @@ export function createTelegramBot({
           if (recordError.path === "/services/camera/record" && recordError.status >= 500) {
             await bot.sendMessage(
               chatId,
-              "⚠️ Esta cámara no permite grabar video desde Home Assistant (camera.record). Te envío una imagen en su lugar."
+              "⚠️ This camera does not support recording video from Home Assistant (camera.record). Sending a photo instead."
             );
 
             const snapshot = await waitForSnapshot(ha, entityId);
@@ -583,8 +583,8 @@ export function createTelegramBot({
         }
         return;
       } else {
-        console.log(`[Telegram] Acción desconocida: ${action}`);
-        await answer("Acción desconocida");
+        console.log(`[Telegram] Unknown action: ${action}`);
+        await answer("Unknown action");
         return;
       }
 
@@ -606,11 +606,11 @@ export function createTelegramBot({
         );
       }
     } catch (error) {
-      console.error(`[Telegram] Error procesando callback ${action} → ${entityId}: ${error.message}`);
+      console.error(`[Telegram] Error processing callback ${action} → ${entityId}: ${error.message}`);
       try {
-        await bot.sendMessage(chatId, `⚠️ Error en ${action}: ${error.message}`);
+        await bot.sendMessage(chatId, `⚠️ Error in ${action}: ${error.message}`);
       } catch {
-        // Si falla enviar mensaje, al menos intentamos responder el callback.
+        // If sending the message fails, at least try to answer the callback.
       }
       await answer(`Error: ${error.message}`);
     }
@@ -620,6 +620,6 @@ export function createTelegramBot({
     console.error("[Telegram] Polling error:", error.message, error.code);
   });
 
-  logger.log("Bot de Telegram iniciado.");
+  logger.log("Telegram bot started.");
   return bot;
 }

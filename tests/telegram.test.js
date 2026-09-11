@@ -129,7 +129,7 @@ describe("createTelegramBot allow-list", () => {
     const lights = [makeLightEntity("kitchen")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
 
-    await bot.emitText("/estado", 42);
+    await bot.emitText("/status", 42);
 
     assert.strictEqual(ha.calls.getStates, 1);
     assert.strictEqual(bot.sentMessages.length, 1);
@@ -140,7 +140,7 @@ describe("createTelegramBot allow-list", () => {
     const lights = [makeLightEntity("kitchen")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
 
-    await bot.emitText("/estado", 999);
+    await bot.emitText("/status", 999);
 
     assert.strictEqual(ha.calls.getStates, 0);
     assert.strictEqual(bot.sentMessages.length, 1);
@@ -150,7 +150,7 @@ describe("createTelegramBot allow-list", () => {
   it("allows every chat_id when the allow-list is empty", async () => {
     const { bot, ha } = setup({ states: [], allowedChatIds: [] });
 
-    await bot.emitText("/estado", 7);
+    await bot.emitText("/status", 7);
 
     assert.strictEqual(ha.calls.getStates, 1);
     assert.strictEqual(bot.sentMessages[0].chatId, 7);
@@ -158,51 +158,51 @@ describe("createTelegramBot allow-list", () => {
 });
 
 describe("createTelegramBot simple read commands", () => {
-  it("/estado replies with fixture data derived from the real formatter", async () => {
+  it("/status replies with fixture data derived from the real formatter", async () => {
     const states = [makeLightEntity("kitchen")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Light kitchen/);
   });
 
-  it("/sensores replies with the active binary sensor from HA", async () => {
+  it("/sensors replies with the active binary sensor from HA", async () => {
     const states = [makeBinarySensorEntity("hall", "motion")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/sensores", 1);
+    await bot.emitText("/sensors", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Sensor hall/);
   });
 
-  it("/puertas replies with the open door/window entity from HA", async () => {
+  it("/doors replies with the open door/window entity from HA", async () => {
     const states = [makeBinarySensorEntity("frontdoor", "door")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/puertas", 1);
+    await bot.emitText("/doors", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Sensor frontdoor/);
   });
 
-  it("/bateria replies with a battery below the configured threshold", async () => {
+  it("/battery replies with a battery below the configured threshold", async () => {
     const states = [makeBatterySensorEntity("remote", 10)];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/bateria", 1);
+    await bot.emitText("/battery", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Battery remote/);
   });
 
-  it("/temp replies with a temperature sensor reading from HA", async () => {
+  it("/temperature replies with a temperature sensor reading from HA", async () => {
     const states = [makeTemperatureSensorEntity("living_room", 21.5)];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/temp", 1);
+    await bot.emitText("/temperature", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Temp living_room/);
@@ -225,7 +225,7 @@ describe("createTelegramBot simple read commands", () => {
       logger: noopLogger,
     });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.strictEqual(bot.sentMessages[0].chatId, 1);
@@ -237,7 +237,7 @@ describe("createTelegramBot reply chunking", () => {
     const states = [makeLightEntity("kitchen")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
   });
@@ -248,7 +248,7 @@ describe("createTelegramBot reply chunking", () => {
     );
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.ok(bot.sentMessages.length > 1);
     assert.strictEqual(bot.sentMessages[0].chatId, 1);
@@ -630,7 +630,7 @@ describe("user-facing copy", () => {
   it("denies an unauthorized chat with guidance text including its chat_id", async () => {
     const { bot } = setup({ states: [], allowedChatIds: ["1"] });
 
-    await bot.emitText("/estado", 999);
+    await bot.emitText("/status", 999);
 
     assert.match(bot.sentMessages[0].text, /999/);
   });
@@ -640,6 +640,6 @@ describe("user-facing copy", () => {
 
     await bot.emitText("/chatid", 999);
 
-    assert.doesNotMatch(bot.sentMessages[0].text, /[Nn]o autorizado/);
+    assert.doesNotMatch(bot.sentMessages[0].text, /[Nn]ot authorized/);
   });
 });
