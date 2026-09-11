@@ -77,6 +77,50 @@ function buildCoverKeyboard(covers) {
   });
 }
 
+// Fetches the current HA states, narrows them through `selector`, and builds
+// the inline keyboard via `keyboardBuilder`. This is the fetch-plus-rebuild
+// sequence genuinely shared by the /lights, /covers, /cameras handlers (via
+// replyWithEntityKeyboard below) and the post-action keyboard refresh in the
+// callback_query handler, which calls it directly. See code-quality-hygiene
+// spec, "Shared Helper for Repeated Fetch+Keyboard+Error Pattern".
+async function fetchEntityKeyboard(ha, selector, keyboardBuilder) {
+  const states = await ha.getStates();
+  const entities = selector(states);
+  return { entities, keyboard: keyboardBuilder(entities) };
+}
+
+// Wraps fetchEntityKeyboard with the reply/empty-state/error handling shared
+// by the /lights, /covers, and /cameras commands: fetch, log the count, reply
+// with an empty-state message when nothing was found, or send the built
+// keyboard, catching any HA error the same way in all three. The callback
+// refresh block cannot reuse this wrapper without changing its behavior: it
+// edits an existing message instead of sending a new one, has no empty-state
+// reply, and already shares the callback handler's own try/catch, so it calls
+// fetchEntityKeyboard directly instead (see the callback_query handler below).
+async function replyWithEntityKeyboard(
+  bot,
+  chatId,
+  ha,
+  { commandLabel, entityNoun, selector, keyboardBuilder, emptyMessage, listMessage },
+) {
+  try {
+    const { entities, keyboard } = await fetchEntityKeyboard(ha, selector, keyboardBuilder);
+    console.log(`[Telegram] ${commandLabel}: ${entities.length} ${entityNoun} found`);
+
+    if (!entities.length) {
+      await bot.sendMessage(chatId, emptyMessage);
+      return;
+    }
+
+    await bot.sendMessage(chatId, listMessage, {
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  } catch (error) {
+    console.error(`[Telegram] Error processing ${commandLabel}:`, error);
+    await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
+  }
+}
+
 function cameraOptionsKeyboard(entityId) {
   return [
     [
@@ -348,25 +392,14 @@ export function createTelegramBot({
       return;
     }
 
-    try {
-      const states = await ha.getStates();
-      const lights = getAllLights(states);
-      console.log(`[Telegram] /lights: ${lights.length} lights found`);
-
-      if (!lights.length) {
-        await bot.sendMessage(chatId, "💡 No lights available.");
-        return;
-      }
-
-      const keyboard = buildLightKeyboard(lights);
-
-      await bot.sendMessage(chatId, "💡 Lights:", {
-        reply_markup: { inline_keyboard: keyboard },
-      });
-    } catch (error) {
-      console.error("[Telegram] Error processing /lights:", error);
-      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
-    }
+    await replyWithEntityKeyboard(bot, chatId, ha, {
+      commandLabel: "/lights",
+      entityNoun: "lights",
+      selector: getAllLights,
+      keyboardBuilder: buildLightKeyboard,
+      emptyMessage: "💡 No lights available.",
+      listMessage: "💡 Lights:",
+    });
   });
 
   bot.onText(/\/sensors/, (msg) => {
@@ -399,25 +432,14 @@ export function createTelegramBot({
       return;
     }
 
-    try {
-      const states = await ha.getStates();
-      const covers = getAllCovers(states);
-      console.log(`[Telegram] /covers: ${covers.length} covers found`);
-
-      if (!covers.length) {
-        await bot.sendMessage(chatId, "🪟 No covers available.");
-        return;
-      }
-
-      const keyboard = buildCoverKeyboard(covers);
-
-      await bot.sendMessage(chatId, "🪟 Covers:", {
-        reply_markup: { inline_keyboard: keyboard },
-      });
-    } catch (error) {
-      console.error("[Telegram] Error processing /covers:", error);
-      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
-    }
+    await replyWithEntityKeyboard(bot, chatId, ha, {
+      commandLabel: "/covers",
+      entityNoun: "covers",
+      selector: getAllCovers,
+      keyboardBuilder: buildCoverKeyboard,
+      emptyMessage: "🪟 No covers available.",
+      listMessage: "🪟 Covers:",
+    });
   });
 
   bot.onText(/\/cameras/, async (msg) => {
@@ -430,23 +452,14 @@ export function createTelegramBot({
       return;
     }
 
-    try {
-      const states = await ha.getStates();
-      const cameras = getAllCameras(states);
-      console.log(`[Telegram] /cameras: ${cameras.length} cameras found`);
-
-      if (!cameras.length) {
-        await bot.sendMessage(chatId, "📷 No cameras available.");
-        return;
-      }
-
-      await bot.sendMessage(chatId, "📷 Select a camera:", {
-        reply_markup: { inline_keyboard: buildCameraListKeyboard(cameras) },
-      });
-    } catch (error) {
-      console.error("[Telegram] Error processing /cameras:", error);
-      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
-    }
+    await replyWithEntityKeyboard(bot, chatId, ha, {
+      commandLabel: "/cameras",
+      entityNoun: "cameras",
+      selector: getAllCameras,
+      keyboardBuilder: buildCameraListKeyboard,
+      emptyMessage: "📷 No cameras available.",
+      listMessage: "📷 Select a camera:",
+    });
   });
 
   bot.on("callback_query", async (query) => {
@@ -590,17 +603,18 @@ export function createTelegramBot({
       }
 
       // Refresh the inline keyboard after action (a fresh fetch is required
-      // here: the action above just changed the entity's state).
-      const refreshedStates = await ha.getStates();
-
+      // here: the action above just changed the entity's state). Uses
+      // fetchEntityKeyboard directly rather than replyWithEntityKeyboard: it
+      // edits the existing message instead of sending a new one, has no
+      // empty-state reply, and shares this handler's own try/catch below.
       if (action.startsWith("light_")) {
-        const keyboard = buildLightKeyboard(getAllLights(refreshedStates));
+        const { keyboard } = await fetchEntityKeyboard(ha, getAllLights, buildLightKeyboard);
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
           { chat_id: chatId, message_id: query.message.message_id },
         );
       } else if (action.startsWith("cover_")) {
-        const keyboard = buildCoverKeyboard(getAllCovers(refreshedStates));
+        const { keyboard } = await fetchEntityKeyboard(ha, getAllCovers, buildCoverKeyboard);
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
           { chat_id: chatId, message_id: query.message.message_id },
