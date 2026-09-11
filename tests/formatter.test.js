@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   getLightsOn,
+  getAllCameras,
   getActiveBinarySensors,
   getOpenDoorsAndWindows,
   getLowBatteries,
@@ -96,6 +97,11 @@ const STATES = [
     device_class: "energy",
     unit_of_measurement: "kWh",
   }),
+
+  // Cameras
+  makeEntity("camera.patio", "idle", { friendly_name: "Patio" }),
+  makeEntity("camera.entrada", "streaming", { friendly_name: "Entrada" }),
+  makeEntity("camera.garage", "unavailable", { friendly_name: "Garage" }),
 ];
 
 // ─── getLightsOn ────────────────────────────────────────────
@@ -113,6 +119,31 @@ describe("getLightsOn", () => {
 
   it("devuelve array vacío si no hay entidades light", () => {
     assert.deepStrictEqual(getLightsOn([]), []);
+  });
+});
+
+// ─── getAllCameras ───────────────────────────────────────
+
+describe("getAllCameras", () => {
+  it("devuelve solo cámaras disponibles ordenadas", () => {
+    const result = getAllCameras(STATES);
+    assert.deepStrictEqual(result, [
+      {
+        entity_id: "camera.entrada",
+        name: "Entrada",
+        state: "streaming",
+      },
+      {
+        entity_id: "camera.patio",
+        name: "Patio",
+        state: "idle",
+      },
+    ]);
+  });
+
+  it("devuelve array vacío si no hay cámaras disponibles", () => {
+    const states = [makeEntity("camera.test", "unavailable")];
+    assert.deepStrictEqual(getAllCameras(states), []);
   });
 });
 

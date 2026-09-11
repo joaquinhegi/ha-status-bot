@@ -50,6 +50,18 @@ export function getAllCovers(states) {
     }));
 }
 
+export function getAllCameras(states) {
+  return states
+    .filter((e) => e.entity_id.startsWith("camera."))
+    .filter((e) => !isUnavailable(e))
+    .sort(byFriendlyName)
+    .map((e) => ({
+      entity_id: e.entity_id,
+      name: friendlyName(e),
+      state: e.state,
+    }));
+}
+
 export function getActiveBinarySensors(states) {
   return states
     .filter((e) => e.entity_id.startsWith("binary_sensor."))
