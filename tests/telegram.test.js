@@ -636,6 +636,35 @@ describe("createTelegramBot camera media flows", () => {
   });
 });
 
+describe("createTelegramBot callback_query allow-list gate", () => {
+  it("denies a callback from a chat_id absent from the allow-list without calling HA", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 999 }),
+    );
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+    assert.strictEqual(bot.editedReplyMarkups.length, 0);
+  });
+
+  it("allows a callback from a chat_id present in the allow-list", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 42 }),
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+  });
+});
+
 describe("createTelegramBot callback_query unknown action", () => {
   it("answers the callback without calling any HA service or editing the message", async () => {
     const { bot, ha } = setup({ states: [], allowedChatIds: [] });
@@ -782,5 +811,16 @@ describe("user-facing copy", () => {
     await bot.emitText("/chatid", 999);
 
     assert.doesNotMatch(bot.sentMessages[0].text, /[Nn]ot authorized/);
+  });
+
+  it("denies a callback from a disallowed chat with a not-authorized answer", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 999 }),
+    );
+
+    assert.match(bot.answeredCallbacks[0].options.text, /[Nn]ot authorized/);
   });
 });
