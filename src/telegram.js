@@ -4,7 +4,6 @@ import {
   formatBatteries,
   formatDoors,
   formatFullStatus,
-  formatLights,
   formatSensors,
   formatTemperatures,
   getAllLights,
@@ -145,7 +144,7 @@ async function safeAnswerCallback(bot, callbackId, text) {
 }
 
 function ensureNonEmptyBuffer(buffer, label) {
-  if (!buffer || !buffer.length) {
+  if (!buffer?.length) {
     throw new Error(`${label} is empty`);
   }
 }
