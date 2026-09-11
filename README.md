@@ -1,339 +1,304 @@
-# 🏠 HA Status Bot
+# HA Status Bot
 
 ![Tests](https://github.com/joaquinhegi/ha-status-bot/actions/workflows/tests.yml/badge.svg)
 ![Version](https://img.shields.io/github/v/tag/joaquinhegi/ha-status-bot?label=version&color=orange)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
-Bot de **Telegram** que se conecta a **Home Assistant** como add-on del Supervisor y permite consultar el estado del hogar directamente desde una conversación de Telegram: luces encendidas, sensores activos, puertas/ventanas abiertas, baterías bajas y temperaturas.
+A **Home Assistant Supervisor add-on** that runs a **Telegram** bot to query and control a home
+directly from a chat: which lights are on, which sensors are active, which doors/windows are
+open, low batteries, temperatures, camera snapshots/video, and turning lights or covers on/off —
+all through simple commands and inline buttons.
+
+> **Upgrading from 1.x?** Version `2.0.0` renames every bot command and two add-on options, and
+> all bot replies are now in English. Read [Upgrading to 2.0.0](#upgrading-to-200) before you
+> update.
 
 ---
 
-## 📖 Índice
+## Table of contents
 
-- [Descripción general](#descripción-general)
-- [Arquitectura del proyecto](#arquitectura-del-proyecto)
-- [Requisitos previos](#requisitos-previos)
-- [Instalación y configuración](#instalación-y-configuración)
-- [Comandos disponibles](#comandos-disponibles)
-- [Estructura de archivos](#estructura-de-archivos)
-- [Explicación detallada del código](#explicación-detallada-del-código)
-  - [config.yaml](#configyaml)
-  - [Dockerfile](#dockerfile)
-  - [package.json](#packagejson)
-  - [src/index.js](#srcindexjs)
-  - [src/haClient.js](#srchaclientjs)
-  - [src/telegram.js](#srctelegramjs)
-  - [src/formatter.js](#srcformatterjs)
-- [Tests](#tests)
+- [How it works](#how-it-works)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Commands](#commands)
+- [Authorization model](#authorization-model)
+- [Upgrading to 2.0.0](#upgrading-to-200)
+- [Environment variables](#environment-variables)
+- [Development](#development)
 - [Docker](#docker)
-- [Licencia](#licencia)
+- [Project structure](#project-structure)
+- [License](#license)
 
 ---
 
-## Descripción general
+## How it works
 
-**HA Status Bot** es un add-on para Home Assistant que levanta un bot de Telegram con long-polling. Al recibir un comando, consulta la API REST del Supervisor (`http://supervisor/core/api`) para obtener los estados de todas las entidades del hogar y responde con un resumen formateado.
-
-**Flujo de datos simplificado:**
+The bot runs inside the Home Assistant Supervisor as a long-running add-on process (long
+polling — no public URL or webhook is needed). When a user sends a command, the bot calls the
+Home Assistant REST API to read the current entity states (or to change one, for the light/cover
+actions), then replies with a formatted summary or an inline keyboard.
 
 ```
-Usuario Telegram  →  Bot (polling)  →  Home Assistant API  →  Respuesta formateada  →  Usuario Telegram
+Telegram user  →  Bot (long polling)  →  Home Assistant REST API  →  Formatted reply  →  Telegram user
 ```
 
----
+**Runtime lifecycle:**
 
-## Arquitectura del proyecto
+- On start, the bot removes any existing webhook and begins polling Telegram for updates.
+- `SIGTERM`/`SIGINT` (sent by the Supervisor on add-on stop, restart, or update) trigger a
+  graceful shutdown: polling stops before the process exits.
+- An unhandled promise rejection (for example, a transient Home Assistant error) is logged and
+  does **not** crash the process; an uncaught synchronous exception does exit the process, since
+  it indicates a state the add-on can no longer trust.
 
-El proyecto sigue una arquitectura modular con separación de responsabilidades:
+**Modules:**
 
-| Módulo | Responsabilidad |
+| File | Responsibility |
 |---|---|
-| `index.js` | Punto de entrada. Carga configuración e inicializa los demás módulos. |
-| `haClient.js` | Cliente HTTP para la API REST de Home Assistant. |
-| `telegram.js` | Gestión del bot de Telegram: comandos, autorización y envío de mensajes. |
-| `formatter.js` | Funciones puras que filtran y formatean los estados de las entidades en texto legible. |
+| `src/index.js` | Entry point: loads and validates add-on configuration, wires the Home Assistant client and the Telegram bot together, installs shutdown/error handlers. |
+| `src/haClient.js` | Home Assistant REST client: reading states, calling services, fetching camera snapshots/clips with retry and fallback. |
+| `src/telegram.js` | Telegram bot: command handlers, inline keyboards, authorization checks, callback dispatch. |
+| `src/formatter.js` | Pure functions that filter and format entity states into the text shown to the user. No I/O. |
 
 ---
 
-## Requisitos previos
+## Requirements
 
-- **Home Assistant** con **Supervisor** (Home Assistant OS o Supervised).
-- Un **bot de Telegram** creado a través de [@BotFather](https://t.me/BotFather).
-- El **chat_id** del usuario o grupo autorizado (se puede obtener con el comando `/chatid` del propio bot).
-
----
-
-## Instalación y configuración
-
-1. Añade el repositorio de este add-on a Home Assistant:
-   - **Ajustes → Add-ons → Tienda de add-ons → ⋮ → Repositorios**
-   - Pega la URL: `https://github.com/joaquinhegi/ha-status-bot`
-
-2. Instala el add-on **HA Status Bot**.
-
-3. Configura las opciones:
-
-   | Opción | Tipo | Descripción |
-   |---|---|---|
-   | `telegram_token` | `password` | Token del bot proporcionado por BotFather. |
-   | `allowed_chat_ids` | `str` | IDs de chat autorizados separados por comas (ej: `12345,67890`). Dejar vacío permite cualquier chat. |
-   | `low_battery_threshold` | `int` | Umbral de batería baja en porcentaje (por defecto `20`). |
-
-4. Inicia el add-on. El bot empezará a escuchar mensajes.
+- **Home Assistant** with the **Supervisor** (Home Assistant OS or Supervised install).
+- A **Telegram bot** created through [@BotFather](https://t.me/BotFather), and its token.
+- The **chat_id** of every user or group that should be allowed to use the bot (each user can
+  discover their own with the bot's `/chatid` command — see
+  [Authorization model](#authorization-model)).
 
 ---
 
-## Comandos disponibles
+## Installation
 
-| Comando | Descripción |
-|---|---|
-| `/start` | Muestra el mensaje de bienvenida y lista de comandos. |
-| `/help` | Lista rápida de comandos. |
-| `/estado` | Resumen completo: luces, puertas, sensores, baterías y temperaturas. |
-| `/luces` | Lista de luces actualmente encendidas. |
-| `/camaras` | Lista cámaras y permite enviar imagen o video de 30 segundos. |
-| `/sensores` | Sensores binarios en estado activo. |
-| `/puertas` | Puertas y ventanas abiertas (filtra por `device_class`). |
-| `/bateria` | Sensores de batería por debajo del umbral configurado. |
-| `/temp` | Todas las lecturas de temperatura disponibles. |
-| `/chatid` | Devuelve el `chat_id` de la conversación actual. |
+1. In Home Assistant, go to **Settings → Add-ons → Add-on Store → ⋮ → Repositories** and add:
+
+   ```
+   https://github.com/joaquinhegi/ha-status-bot
+   ```
+
+2. Install the **HA Status Bot** add-on.
+3. Set the options described in [Configuration](#configuration) below.
+4. Start the add-on. It begins polling Telegram immediately.
 
 ---
 
-## Estructura de archivos
+## Configuration
 
-```
-ha-status-bot/
-├── config.yaml          # Manifiesto del add-on para Home Assistant Supervisor
-├── Dockerfile           # Imagen Docker del add-on
-├── package.json         # Dependencias y metadatos de Node.js
-├── src/
-│   ├── index.js         # Punto de entrada principal
-│   ├── haClient.js      # Cliente de la API de Home Assistant
-│   ├── telegram.js      # Lógica del bot de Telegram
-│   └── formatter.js     # Filtrado y formateo de entidades
-└── tests/
-    ├── formatter.test.js # Tests del módulo formatter
-    ├── haClient.test.js  # Tests del módulo haClient
-    ├── telegram.test.js  # Tests del módulo telegram
-    └── index.test.js     # Tests del punto de entrada
-```
+Options are set from the add-on's **Configuration** tab in Home Assistant and are exactly as
+declared in `config.yaml`:
+
+| Option | Type | Default | Description |
+|---|---|---|---|
+| `telegram_bot_token` | `password` | `""` | Bot token issued by BotFather. Required. |
+| `allowed_chat_ids` | `list(str)` | `[]` | Chat IDs allowed to use the bot, one per list entry. An empty list allows **any** chat — see [Authorization model](#authorization-model). |
+| `low_battery_threshold_percent` | `int(0,100)` | `20` | Battery percentage at or below which a sensor is reported as low. |
+
+These three names and types match `config.yaml` exactly. If you are updating from a version
+before `2.0.0`, see [Upgrading to 2.0.0](#upgrading-to-200) — the option names and the type of
+`allowed_chat_ids` changed and existing installs must be reconfigured.
 
 ---
 
-## Explicación detallada del código
+## Commands
 
-### `config.yaml`
-
-Este archivo es el **manifiesto del add-on** para el Supervisor de Home Assistant. Define los metadatos y la configuración que el usuario puede ajustar desde la UI de Home Assistant.
-
-```yaml
-homeassistant_api: true
-```
-
-Esta línea es **crítica**: indica al Supervisor que inyecte la variable de entorno `SUPERVISOR_TOKEN` dentro del contenedor. Sin ella, el bot no podría autenticarse contra la API de Home Assistant.
-
-**Sección `options`:** Valores por defecto que se guardan en `/data/options.json` dentro del contenedor.
-
-**Sección `schema`:** Define los tipos de cada opción para que la UI de Home Assistant genere los campos de formulario adecuados (campo de contraseña para el token, campo de texto para IDs, campo numérico para el umbral).
-
----
-
-### `Dockerfile`
-
-```dockerfile
-FROM node:20-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
-COPY src ./src
-CMD ["node", "src/index.js"]
-```
-
-- **`node:20-alpine`**: Imagen base ligera (~50 MB) con Node.js 20.
-- **`npm ci --omit=dev`**: Instala dependencias de producción de forma determinista usando `package-lock.json`, sin incluir dependencias de desarrollo.
-- **Orden de capas optimizado**: primero se copian los archivos de dependencias y luego el código fuente. Esto aprovecha la caché de Docker: si el código cambia pero las dependencias no, Docker reutiliza la capa de `npm ci`.
-
----
-
-### `package.json`
-
-```json
-{
-  "type": "module"
-}
-```
-
-**`"type": "module"`** habilita la sintaxis de **ES Modules** (`import`/`export`) en lugar de CommonJS (`require`). Todo el proyecto usa `import`/`export`.
-
-**Única dependencia:** `node-telegram-bot-api` — librería que gestiona la conexión con la API de Telegram mediante long-polling.
-
-> No se usa `axios` ni `node-fetch` para conectar con Home Assistant: se utiliza el `fetch` nativo de Node.js 20+.
-
----
-
-### `src/index.js`
-
-Es el **punto de entrada** de la aplicación. Su responsabilidad es:
-
-1. **Cargar opciones del add-on** (`loadOptions`):
-   - Lee `/data/options.json`, que es el archivo donde el Supervisor de Home Assistant deposita la configuración del usuario.
-
-2. **Parsear los chat IDs permitidos** (`parseAllowedChatIds`):
-   - Recibe una cadena como `"123,456,789"`, la divide por comas, elimina espacios y devuelve un array de strings.
-   - Si está vacío, devuelve `[]`, lo que se interpreta como "permitir todos los chats".
-
-3. **Validar configuración obligatoria**:
-   - Verifica que exista `telegram_token` (proporcionado por el usuario).
-   - Verifica que exista `SUPERVISOR_TOKEN` (inyectado automáticamente por el Supervisor).
-
-4. **Crear el cliente de Home Assistant** pasándole la URL base del Supervisor (`http://supervisor/core/api`) y el token.
-
-5. **Crear el bot de Telegram** pasándole el token, la lista de chats autorizados, el umbral de batería y el cliente de HA.
-
-6. **Manejo de errores**: Si `main()` falla, se imprime el error y el proceso termina con código 1.
-
----
-
-### `src/haClient.js`
-
-Módulo que encapsula las llamadas HTTP a la API REST de Home Assistant usando un **patrón factory** (función que devuelve un objeto con métodos).
-
-#### `createHomeAssistantClient({ baseUrl, token })`
-
-Retorna un objeto con dos métodos:
-
-- **`getStates()`**: Llama a `GET /states` y devuelve un array con **todas** las entidades registradas en Home Assistant. Cada entidad tiene la forma:
-  ```json
-  {
-    "entity_id": "light.salon",
-    "state": "on",
-    "attributes": {
-      "friendly_name": "Luz del salón",
-      "brightness": 200
-    }
-  }
-  ```
-
-- **`callService(domain, service, serviceData)`**: Llama a `POST /services/{domain}/{service}`. Actualmente no se usa desde el bot, pero está preparado para futuras extensiones (por ejemplo: `/apagar_luces`).
-
-#### `request(path, options)` (función interna)
-
-Función genérica que:
-1. Construye la URL completa: `baseUrl + path`.
-2. Inyecta automáticamente las cabeceras `Authorization: Bearer <token>` y `Content-Type: application/json`.
-3. Si la respuesta no es OK (status >= 400), lanza un error con el código de estado y el cuerpo de la respuesta.
-4. Devuelve el JSON parseado.
-
----
-
-### `src/telegram.js`
-
-Módulo que crea y configura el bot de Telegram.
-
-#### `createTelegramBot({ token, allowedChatIds, lowBatteryThreshold, ha })`
-
-1. Crea una instancia de `TelegramBot` con **polling** habilitado (el bot consulta periódicamente a Telegram por nuevos mensajes).
-
-2. Registra los handlers de comandos usando `bot.onText(regex, callback)`.
-
-3. Retorna la instancia del bot.
-
-#### `isAllowed(chatId, allowedChatIds)`
-
-Función de autorización:
-- Si `allowedChatIds` está vacío → todo el mundo puede usar el bot.
-- Si tiene valores → el `chatId` del mensaje debe estar en la lista.
-
-#### `safeReply(bot, chatId, text)`
-
-Telegram impone un **límite de ~4096 caracteres** por mensaje. Esta función:
-- Si el texto cabe en un solo mensaje, lo envía directamente.
-- Si excede 3900 caracteres, lo divide en trozos y los envía secuencialmente.
-
-#### `handleCommand(msg, formatter)`
-
-Función genérica que:
-1. Verifica autorización.
-2. Obtiene los estados de HA (`ha.getStates()`).
-3. Aplica la función formateadora recibida.
-4. Envía la respuesta.
-5. Si hay error, envía un mensaje de error al usuario.
-
----
-
-### `src/formatter.js`
-
-Módulo de **funciones puras** (sin efectos secundarios) que filtran y formatean los estados de Home Assistant. Cada función recibe el array completo de estados y devuelve datos procesados.
-
-#### Funciones auxiliares internas
-
-| Función | Descripción |
-|---|---|
-| `friendlyName(entity)` | Devuelve `attributes.friendly_name` o el `entity_id` como fallback. |
-| `isUnavailable(entity)` | Retorna `true` si el estado es `"unavailable"` o `"unknown"`. |
-| `byFriendlyName(a, b)` | Comparador para ordenar alfabéticamente por nombre amigable con soporte para español. |
-| `bulletList(items, emptyText)` | Formatea un array como lista con viñetas `•`. Si está vacío, muestra el texto alternativo. |
-
-#### Funciones de extracción de datos
-
-| Función | Entidades que filtra | Criterio |
+| Command | Description | Gated by allow-list? |
 |---|---|---|
-| `getLightsOn(states)` | `light.*` | `state === "on"` |
-| `getActiveBinarySensors(states)` | `binary_sensor.*` | `state === "on"` |
-| `getOpenDoorsAndWindows(states)` | `binary_sensor.*` | `state === "on"` + `device_class` ∈ `{door, garage_door, window, opening}` |
-| `getLowBatteries(states, threshold)` | `sensor.*` | `device_class === "battery"` + valor ≤ umbral |
-| `getTemperatures(states)` | `sensor.*` | `device_class === "temperature"` + no unavailable |
-
-#### Funciones de formateo
-
-Cada función `format*` usa las funciones de extracción y `bulletList` para generar un string legible con emoji y viñetas:
-
-- `formatLights(states)` → `"💡 Luces encendidas\n\n• Salón\n• Cocina"`
-- `formatSensors(states)` → `"📡 Sensores activos\n\n• Movimiento cocina (motion)"`
-- `formatDoors(states)` → `"🚪 Puertas / ventanas abiertas\n\n• Todo cerrado"`
-- `formatBatteries(states, threshold)` → `"🔋 Baterías bajas <= 20%\n\n• Sensor puerta: 12%"`
-- `formatTemperatures(states)` → `"🌡️ Temperaturas\n\n• Salón: 22.5°C"`
-- `formatFullStatus(states, threshold)` → Combina todas las anteriores en un solo mensaje.
+| `/start` | Welcome message and command list. | Yes |
+| `/help` | Short command list. | Yes |
+| `/status` | Full summary: lights, doors/windows, sensors, batteries, temperatures. | Yes |
+| `/lights` | Inline buttons to turn each light on or off. | Yes |
+| `/covers` | Inline buttons to open or close each cover. | Yes |
+| `/cameras` | Pick a camera, then request a photo or a 30-second video clip. | Yes |
+| `/sensors` | Binary sensors currently active. | Yes |
+| `/doors` | Doors and windows currently open. | Yes |
+| `/battery` | Batteries at or below the configured threshold. | Yes |
+| `/temperature` | All available temperature readings. | Yes |
+| `/chatid` | Replies with the chat_id of the current conversation. | **No — intentionally** |
 
 ---
 
-## Tests
+## Authorization model
 
-El proyecto usa [Node.js test runner](https://nodejs.org/api/test.html) (nativo, sin dependencias adicionales).
+Every command and every inline-button action checks the requesting `chat_id` against
+`allowed_chat_ids`:
+
+- If `allowed_chat_ids` is empty, every chat is allowed.
+- If it has entries, only a matching `chat_id` is allowed; any other chat receives a message
+  telling it its own `chat_id` and that it is not authorized.
+
+**`/chatid` is deliberately left ungated.** A brand-new user has no way to learn their own
+`chat_id` if the command that reveals it is itself gated, so `/chatid` always replies — this is
+intentional, not an oversight, and is the supported way for someone to request access from the
+add-on owner.
+
+Beyond the chat-level allow-list, every inline-button action (turning a light on/off, opening or
+closing a cover, picking a camera) is also checked against the **entity list the bot itself most
+recently offered** for that action, before any Home Assistant service call is made. This prevents
+an already-authorized chat from calling out-of-band or crafted button actions against entities
+the bot never displayed to it.
+
+---
+
+## Upgrading to 2.0.0
+
+Version `2.0.0` is a **breaking release**. It does not add new features on its own; it renames
+existing commands and options and switches all bot replies to English. There are no aliases for
+the old names — old commands and old option names simply stop being recognized.
+
+### 1. Bot commands renamed (English only, no aliases)
+
+| Old command | New command |
+|---|---|
+| `/estado` | `/status` |
+| `/luces` | `/lights` |
+| `/sensores` | `/sensors` |
+| `/puertas` | `/doors` |
+| `/bateria` | `/battery` |
+| `/temp` | `/temperature` |
+| `/persianas` | `/covers` |
+| `/camaras` | `/cameras` |
+
+`/start`, `/help`, and `/chatid` keep their names. After upgrading, the old commands are not
+recognized at all — the bot does not reply to them, it simply ignores the message. Update any
+saved shortcuts, bot menus, or scripts that send the old command text.
+
+### 2. Add-on options renamed
+
+| Old option (type) | New option (type) |
+|---|---|
+| `telegram_token` (`password`) | `telegram_bot_token` (`password`) |
+| `low_battery_threshold` (`int`) | `low_battery_threshold_percent` (`int`, bounded `0`–`100`) |
+| `allowed_chat_ids` (`str`, comma-separated) | `allowed_chat_ids` (`list(str)`) — same name, new type |
+
+**Existing installations must be reconfigured after updating**: open the add-on's Configuration
+tab and re-enter the token and threshold under their new names, and re-enter each allowed chat ID
+as a separate list entry instead of a comma-separated string. The add-on will not start with the
+old option names in place — `telegram_bot_token` is required and validated on startup.
+
+### 3. Bot replies are now in English
+
+Every reply, button label, and error message the bot sends is in English. There is no
+language-selection option.
+
+---
+
+## Environment variables
+
+These are set by the Home Assistant Supervisor automatically and normally require no action:
+
+| Variable | Source | Purpose |
+|---|---|---|
+| `SUPERVISOR_TOKEN` | Injected by the Supervisor because `config.yaml` declares `homeassistant_api: true`. | Bearer token used to authenticate every Home Assistant REST call. Required; the add-on exits with an explicit error if it is missing. |
+
+These two are optional overrides, useful when running the bot **outside** the Supervisor (local
+development, a manual container run):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HA_BASE_URL` | `http://supervisor/core/api` | Base URL of the Home Assistant REST API. Only override this for local runs against a Home Assistant instance reachable at a different address. |
+| `OPTIONS_PATH` | `/data/options.json` | Path to the JSON file holding the add-on options (`telegram_bot_token`, `allowed_chat_ids`, `low_battery_threshold_percent`). Point this at a local file to run the bot without the Supervisor. |
+
+**Never hardcode `SUPERVISOR_TOKEN`, a Telegram bot token, or any other credential in source,
+in a committed file, or in this README.** Provide them only through the add-on Configuration UI
+or through environment variables / a local, gitignored options file at development time.
+
+---
+
+## Development
+
+Scripts below are exactly as declared in `package.json`:
 
 ```bash
-npm test
+node --test                # run the test suite
+npm run test:coverage       # run the test suite with coverage instrumentation
+npm run lint                # check for lint issues (Biome)
+npm run lint:fix             # check and auto-fix lint issues
+npm run format               # apply formatting (Biome)
+npm run check                # run Biome's combined lint + format check
+npm run check:lang           # fail if src/ contains Spanish characters
 ```
 
-Los tests cubren:
-- **formatter.js**: Todas las funciones de filtrado y formateo con datos simulados.
-- **haClient.js**: Llamadas HTTP con mock de `fetch`.
-- **telegram.js**: Autorización, partición de mensajes largos y manejo de comandos.
-- **index.js**: Carga de opciones y parseo de chat IDs.
+The test suite uses Node's built-in [test runner](https://nodejs.org/api/test.html) — no
+external test framework is installed. Every test file imports and exercises the real module it
+covers (`src/formatter.js`, `src/haClient.js`, `src/telegram.js`, `src/index.js`); none of them
+re-implement production logic inline, so a regression in the real code fails the corresponding
+test.
+
+Code style and linting are enforced with [Biome](https://biomejs.dev) (`biome.json`), including a
+rule that forbids reading `process.env` anywhere except the single authorized entry point in
+`src/index.js`. `npm run check:lang` is a project-specific guard that fails if any accented
+Spanish character appears under `src/`, keeping the codebase's English-only convention.
+
+To run the bot locally without a Home Assistant Supervisor, point it at a local options file and
+a reachable Home Assistant instance:
+
+```bash
+SUPERVISOR_TOKEN=<your-long-lived-access-token> \
+HA_BASE_URL=http://localhost:8123/api \
+OPTIONS_PATH=./local-options.json \
+node src/index.js
+```
+
+Where `local-options.json` (kept out of version control) provides
+`telegram_bot_token`, `allowed_chat_ids`, and `low_battery_threshold_percent`.
 
 ---
 
 ## Docker
 
-Para construir la imagen manualmente:
+Build the image manually:
 
 ```bash
 docker build -t ha-status-bot .
 ```
 
-Para ejecutarla fuera de Home Assistant (desarrollo):
+The `Dockerfile` installs dependencies with `npm ci --omit=dev` for a reproducible,
+lockfile-exact install, then runs `node src/index.js` directly.
+
+Run it outside Home Assistant (for local testing):
 
 ```bash
 docker run \
-  -e SUPERVISOR_TOKEN=tu_token \
-  -v /path/to/options.json:/data/options.json \
+  -e SUPERVISOR_TOKEN=<your-long-lived-access-token> \
+  -e HA_BASE_URL=http://host.docker.internal:8123/api \
+  -v /path/to/local-options.json:/data/options.json \
   ha-status-bot
 ```
 
 ---
 
-## Licencia
+## Project structure
+
+```
+ha-status-bot/
+├── config.yaml          # Home Assistant Supervisor add-on manifest
+├── Dockerfile            # Add-on image
+├── package.json          # Dependencies, scripts, metadata
+├── biome.json            # Lint/format configuration
+├── scripts/
+│   └── check-lang.js     # Fails CI if src/ contains Spanish characters
+├── src/
+│   ├── index.js           # Entry point: config loading, wiring, lifecycle
+│   ├── haClient.js         # Home Assistant REST client
+│   ├── telegram.js         # Telegram bot: commands, keyboards, authorization
+│   └── formatter.js        # Pure entity-state formatting functions
+└── tests/
+    ├── formatter.test.js
+    ├── haClient.test.js
+    ├── telegram.test.js
+    ├── index.test.js
+    └── helpers/
+        └── fakeTelegramBot.js   # Test double used by telegram.test.js
+```
+
+---
+
+## License
 
 MIT
