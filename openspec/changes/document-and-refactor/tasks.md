@@ -383,6 +383,57 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
 - [x] 10.8 Verify: manual proofread against the actual current source state after PR 9 merges;
       `git diff --stat` ≈350 before opening PR 10.
 
+## Phase 11: Corrective Slice (from sdd-verify FAIL, engram #77)
+
+`sdd-verify` returned FAIL against phases 1-10: two `code-quality-hygiene` MUST requirements were
+unimplemented (no shared fetch+keyboard+error helper; no named constant for the camera clip
+duration) and two WARNING-level coverage gaps remained (callback-path allow-list denial; the
+`/lights`/`/covers`/`/cameras` command handlers). The repository owner approved fixing everything
+found. Four commits, each verified independently with `node --test` and `npx biome check .`.
+
+- [x] 11.1 Extract `CAMERA_CLIP_DURATION_SECONDS` as a single named constant, exported from
+      `src/haClient.js` and imported into `src/telegram.js`. Replaces the raw literal `30` at
+      `src/haClient.js:219` (default parameter) and every embedding in `src/telegram.js` (the
+      camera-options keyboard label and `camera_vid30` callback action, the `OFFERED_ENTITY_SELECTORS`
+      map key, the answer/caption/filename strings, and the `recordCameraClip` call argument) so the
+      recorded duration and every user-facing string that mentions it can never drift apart. —
+      DONE. Commit `644c5a9`. `node --test`: 114/114 (no regression). `npx biome check .`: clean, 12
+      files.
+- [x] 11.2 Extract the shared fetch+keyboard+error helper required by the `code-quality-hygiene` spec.
+      Compared the four call sites line by line first (see the difference list in the apply-progress
+      artifact and the PR description): `/lights`, `/covers`, `/cameras` share an identical sequence
+      (allow-list check already handled by the caller, `await ha.getStates()`, selector call, count
+      log, empty-list early reply, `sendMessage` with an inline keyboard, `catch` with the same error
+      copy); the callback-refresh block only shares the fetch+selector+build subset — no allow-list
+      check of its own, no try/catch of its own (relies on the outer callback handler's), no
+      empty-state reply, and delivers via `editMessageReplyMarkup` instead of `sendMessage`. Extracted
+      two helpers in `src/telegram.js`: `fetchEntityKeyboard(ha, selector, keyboardBuilder)` (the
+      genuinely shared core, called directly by all four sites) and `replyWithEntityKeyboard(bot,
+      chatId, ha, options)` (adds the reply/empty-state/error handling, used only by the three
+      commands, since the refresh block cannot reuse it without changing behavior). Behavior-neutral:
+      every log line, message string, and error path stays byte-identical; the refresh block's
+      `ha.getStates()` call count and timing are unchanged (exactly one of the two branches always
+      matched before and still does). — DONE. Commit `40bd2ce`. `node --test`: 114/114 (no regression).
+      `npx biome check .`: clean, 12 files.
+- [x] 11.3 Add coverage for the callback_query allow-list denial branch (`src/telegram.js:461-464` at
+      verify time), the security-relevant branch of the callback path that had zero coverage. New
+      `describe("createTelegramBot callback_query allow-list gate", ...)` block: denies a
+      disallowed chat_id with zero HA calls, and a positive control confirming an allowed chat_id
+      still proceeds; plus one `describe("user-facing copy")` case pinning the "Not authorized."
+      answer text. — DONE. Commit `ce88d7f`. `node --test`: 129/129 (+15 from the 114 baseline
+      across 11.3 and 11.4 combined). `npx biome check .`: clean, 12 files.
+- [x] 11.4 Add coverage for the `/lights`, `/covers`, `/cameras` command handlers (~90 lines never
+      invoked by any test at verify time). New `describe` blocks per command, each with: denial
+      without an HA call, a populated inline keyboard with the expected `callback_data` per entity,
+      the empty-state reply with no keyboard attached, and the error path replying instead of
+      throwing. — DONE. Commit `8c00802`. `node --test`: 126/126 at this step. `npx biome check .`:
+      clean, 12 files.
+- [x] 11.5 Verify: full suite green after all four fixes (`node --test` → 129/129, up from the
+      114/114 baseline, +15 new tests, zero regressions); `npx biome check .` clean (12 files); no
+      new files under `src/`; `createHomeAssistantClient`/`createTelegramBot` public return shapes
+      unchanged; `src/telegram.js` stays one module. `git diff --numstat` per commit stayed well
+      under the 400-line budget (largest unit: 74+/60- in `src/telegram.js`).
+
 ## Binding Implementation Order
 
 `1a → 1b → 2a → 2b → 3 → 4 → 5a → 5b → 6 → 7` (design's binding order; PR numbers above follow this
