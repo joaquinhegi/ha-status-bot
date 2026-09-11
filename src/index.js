@@ -1,14 +1,22 @@
 import fs from "fs";
+import { pathToFileURL } from "url";
 import { createHomeAssistantClient } from "./haClient.js";
 import { createTelegramBot } from "./telegram.js";
 
-function loadOptions() {
-  const optionsPath = process.env.OPTIONS_PATH || "/data/options.json";
-  console.log(`Cargando opciones desde ${optionsPath}...`);
-  const raw = fs.readFileSync(optionsPath, "utf8");
-  const options = JSON.parse(raw);
-  console.log("Opciones cargadas correctamente.");
-  return options;
+export const HA_DEFAULT_BASE_URL = "http://supervisor/core/api";
+
+function defaultReadFile(path) {
+  return fs.readFileSync(path, "utf8");
+}
+
+function requireEnv(env, name) {
+  const value = env[name];
+
+  if (!value) {
+    throw new Error(`Missing ${name}. Check homeassistant_api: true in config.yaml.`);
+  }
+
+  return value;
 }
 
 function parseAllowedChatIds(value) {
@@ -22,43 +30,95 @@ function parseAllowedChatIds(value) {
     .filter(Boolean);
 }
 
-async function main() {
-  const options = loadOptions();
+function coerceLowBatteryThreshold(value) {
+  const threshold = Number(value ?? 20);
+  return Number.isFinite(threshold) ? threshold : NaN;
+}
 
-  const telegramToken = options.telegram_token;
-  const allowedChatIds = parseAllowedChatIds(options.allowed_chat_ids);
-  const lowBatteryThreshold = Number(options.low_battery_threshold ?? 20);
+function buildOptionFields(options) {
+  return [
+    {
+      name: "telegram_token",
+      value: options.telegram_token,
+      validate: (value) => typeof value === "string" && value.length > 0,
+      message: "must be a non-empty string",
+      read: () => options.telegram_token,
+    },
+    {
+      name: "allowed_chat_ids",
+      value: options.allowed_chat_ids,
+      validate: () => true,
+      message: "must be a comma-separated string",
+      read: () => parseAllowedChatIds(options.allowed_chat_ids),
+    },
+    {
+      name: "low_battery_threshold",
+      value: coerceLowBatteryThreshold(options.low_battery_threshold),
+      validate: (value) => Number.isFinite(value) && value >= 0 && value <= 100,
+      message: "must be a number between 0 and 100",
+      read: () => coerceLowBatteryThreshold(options.low_battery_threshold),
+    },
+  ];
+}
 
-  console.log(`Chat IDs permitidos: ${allowedChatIds.length ? allowedChatIds.join(", ") : "(todos)"}`);
-  console.log(`Umbral batería baja: ${lowBatteryThreshold}%`);
+export function loadConfig({ env = process.env, readFile = defaultReadFile } = {}) {
+  const optionsPath = env.OPTIONS_PATH || "/data/options.json";
+  console.log(`Loading options from ${optionsPath}...`);
+  const options = JSON.parse(readFile(optionsPath));
+  console.log("Options loaded successfully.");
 
-  if (!telegramToken) {
-    throw new Error("Falta configurar telegram_token en el add-on.");
+  const fields = buildOptionFields(options);
+  const errors = fields
+    .filter((field) => !field.validate(field.value))
+    .map((field) => `${field.name}: ${field.message}`);
+
+  if (errors.length) {
+    throw new Error(`Invalid add-on configuration — ${errors.join("; ")}`);
   }
 
-  const supervisorToken = process.env.SUPERVISOR_TOKEN;
+  const [telegramToken, allowedChatIds, lowBattery] = fields.map((field) => field.read());
+  const supervisorToken = requireEnv(env, "SUPERVISOR_TOKEN");
+  const baseUrl = env.HA_BASE_URL || HA_DEFAULT_BASE_URL;
 
-  if (!supervisorToken) {
-    throw new Error("No existe SUPERVISOR_TOKEN. Revisa homeassistant_api: true en config.yaml.");
-  }
+  console.log(`Allowed chat IDs: ${allowedChatIds.length ? allowedChatIds.join(", ") : "(all)"}`);
+  console.log(`Low battery threshold: ${lowBattery}%`);
 
-  console.log("Conectando con Home Assistant API...");
-  const ha = createHomeAssistantClient({
-    baseUrl: process.env.HA_BASE_URL || "http://supervisor/core/api",
-    token: supervisorToken,
+  return Object.freeze({
+    telegram: Object.freeze({
+      token: telegramToken,
+      allowedChatIds: Object.freeze(allowedChatIds),
+    }),
+    homeAssistant: Object.freeze({ baseUrl, token: supervisorToken }),
+    thresholds: Object.freeze({ lowBattery }),
+  });
+}
+
+export async function bootstrap({
+  config,
+  createHaClient = createHomeAssistantClient,
+  startBot = createTelegramBot,
+  logger = console,
+} = {}) {
+  logger.log("Connecting to Home Assistant API...");
+  const ha = createHaClient({
+    baseUrl: config.homeAssistant.baseUrl,
+    token: config.homeAssistant.token,
   });
 
-  createTelegramBot({
-    token: telegramToken,
-    allowedChatIds,
-    lowBatteryThreshold,
+  const bot = startBot({
+    token: config.telegram.token,
+    allowedChatIds: config.telegram.allowedChatIds,
+    lowBatteryThreshold: config.thresholds.lowBattery,
     ha,
   });
 
-  console.log("HA Status Bot iniciado correctamente.");
+  logger.log("HA Status Bot started successfully.");
+  return bot;
 }
 
-main().catch((error) => {
-  console.error("Error arrancando HA Status Bot:", error);
-  process.exit(1);
-});
+if (pathToFileURL(process.argv[1]).href === import.meta.url) {
+  bootstrap({ config: loadConfig() }).catch((error) => {
+    console.error("Error starting HA Status Bot:", error);
+    process.exit(1);
+  });
+}
