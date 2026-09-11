@@ -6,9 +6,9 @@ import { HA_DEFAULT_BASE_URL, bootstrap, installProcessHandlers, loadConfig } fr
 
 function makeOptions(overrides = {}) {
   return {
-    telegram_token: "test-token",
-    allowed_chat_ids: "111,222",
-    low_battery_threshold: 15,
+    telegram_bot_token: "test-token",
+    allowed_chat_ids: ["111", "222"],
+    low_battery_threshold_percent: 15,
     ...overrides,
   };
 }
@@ -78,71 +78,80 @@ describe("loadConfig", () => {
     );
   });
 
-  it("parses comma-separated chat IDs and trims whitespace", () => {
+  it("passes the allowed_chat_ids list through unchanged", () => {
     const config = loadConfig({
       env: fakeEnv(),
-      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: " 111 , 222 ," })),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: ["111", "222"] })),
     });
 
     assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
   });
 
-  it("returns an empty allow-list when allowed_chat_ids is blank", () => {
+  it("returns an empty allow-list when allowed_chat_ids is an empty list", () => {
     const config = loadConfig({
       env: fakeEnv(),
-      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: "" })),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: [] })),
     });
 
     assert.deepStrictEqual(config.telegram.allowedChatIds, []);
   });
 
-  it("coerces a numeric low_battery_threshold string", () => {
+  it("returns an empty allow-list when allowed_chat_ids is absent", () => {
+    const options = makeOptions();
+    delete options.allowed_chat_ids;
+
+    const config = loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, []);
+  });
+
+  it("coerces a numeric low_battery_threshold_percent string", () => {
     const config = loadConfig({
       env: fakeEnv(),
-      readFile: fakeReadFile(makeOptions({ low_battery_threshold: "30" })),
+      readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: "30" })),
     });
 
     assert.strictEqual(config.thresholds.lowBattery, 30);
   });
 
-  it("defaults low_battery_threshold to 20 when absent", () => {
+  it("defaults low_battery_threshold_percent to 20 when absent", () => {
     const options = makeOptions();
-    delete options.low_battery_threshold;
+    delete options.low_battery_threshold_percent;
 
     const config = loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) });
 
     assert.strictEqual(config.thresholds.lowBattery, 20);
   });
 
-  it("rejects a low_battery_threshold above 100, naming the option", () => {
+  it("rejects a low_battery_threshold_percent above 100, naming the option", () => {
     assert.throws(
       () =>
         loadConfig({
           env: fakeEnv(),
-          readFile: fakeReadFile(makeOptions({ low_battery_threshold: 150 })),
+          readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: 150 })),
         }),
-      /low_battery_threshold/
+      /low_battery_threshold_percent/
     );
   });
 
-  it("rejects a low_battery_threshold below 0, naming the option", () => {
+  it("rejects a low_battery_threshold_percent below 0, naming the option", () => {
     assert.throws(
       () =>
         loadConfig({
           env: fakeEnv(),
-          readFile: fakeReadFile(makeOptions({ low_battery_threshold: -5 })),
+          readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: -5 })),
         }),
-      /low_battery_threshold/
+      /low_battery_threshold_percent/
     );
   });
 
-  it("names the missing option in the thrown error when telegram_token is absent", () => {
+  it("names the missing option in the thrown error when telegram_bot_token is absent", () => {
     const options = makeOptions();
-    delete options.telegram_token;
+    delete options.telegram_bot_token;
 
     assert.throws(
       () => loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) }),
-      /telegram_token/
+      /telegram_bot_token/
     );
   });
 

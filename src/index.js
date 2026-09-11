@@ -19,17 +19,6 @@ function requireEnv(env, name) {
   return value;
 }
 
-function parseAllowedChatIds(value) {
-  if (!value || !value.trim()) {
-    return [];
-  }
-
-  return value
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-}
-
 function coerceLowBatteryThreshold(value) {
   const threshold = Number(value ?? 20);
   return Number.isFinite(threshold) ? threshold : NaN;
@@ -38,25 +27,25 @@ function coerceLowBatteryThreshold(value) {
 function buildOptionFields(options) {
   return [
     {
-      name: "telegram_token",
-      value: options.telegram_token,
+      name: "telegram_bot_token",
+      value: options.telegram_bot_token,
       validate: (value) => typeof value === "string" && value.length > 0,
       message: "must be a non-empty string",
-      read: () => options.telegram_token,
+      read: () => options.telegram_bot_token,
     },
     {
       name: "allowed_chat_ids",
       value: options.allowed_chat_ids,
-      validate: () => true,
-      message: "must be a comma-separated string",
-      read: () => parseAllowedChatIds(options.allowed_chat_ids),
+      validate: (value) => value === undefined || Array.isArray(value),
+      message: "must be a list of strings",
+      read: () => (Array.isArray(options.allowed_chat_ids) ? options.allowed_chat_ids : []),
     },
     {
-      name: "low_battery_threshold",
-      value: coerceLowBatteryThreshold(options.low_battery_threshold),
+      name: "low_battery_threshold_percent",
+      value: coerceLowBatteryThreshold(options.low_battery_threshold_percent),
       validate: (value) => Number.isFinite(value) && value >= 0 && value <= 100,
       message: "must be a number between 0 and 100",
-      read: () => coerceLowBatteryThreshold(options.low_battery_threshold),
+      read: () => coerceLowBatteryThreshold(options.low_battery_threshold_percent),
     },
   ];
 }
