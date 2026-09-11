@@ -162,35 +162,60 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
       240 changed lines (239+/1-), entirely in `tests/telegram.test.js`; `src/` has zero changes. Full
       suite: 86/86 passing (was 74/74, +12 new tests), zero regressions.
 
-## Phase 5: Authorization Hardening + Process Lifecycle (Unit 3 — PR 5)
+## Phase 5: Authorization Hardening + Process Lifecycle (Unit 3 — PR 5) — DONE
 
-- [ ] 5.1 RED: in `tests/telegram.test.js`, add a failing case asserting `callService` is never
+- [x] 5.1 RED: in `tests/telegram.test.js`, add a failing case asserting `callService` is never
       called when a `callback_query` carries `light_on:light.not_offered` or `light_on:../../etc`
-      (entity not present in the most recently fetched candidate set).
-- [ ] 5.2 In `src/telegram.js`, before line 405's dispatch, add a private `resolveOfferedEntity(action,
+      (entity not present in the most recently fetched candidate set). — DONE: new
+      `describe("createTelegramBot entity authorization gate", ...)` block; also added cover and
+      camera_pick forged-entity cases plus a still-accepts-offered-entity regression case.
+- [x] 5.2 In `src/telegram.js`, before line 405's dispatch, add a private `resolveOfferedEntity(action,
       entityId, states)` mapping action prefix to the same formatter selector used to build the
       keyboard (`light_*` → `getAllLights`, `cover_*` → `getAllCovers`, `camera_*` → `getAllCameras`);
       require an exact `entity_id` match. Add a shape gate `/^[a-z_]+\.[a-z0-9_]+$/` before the
-      membership check. No match → inline unknown-entity reply, zero service calls, `logger.warn`.
-- [ ] 5.3 GREEN: confirm 5.1's test passes against the real gate.
-- [ ] 5.4 In `src/telegram.js:205-244`, add the `isAllowed(chatId, allowedChatIds)` check to the
+      membership check. No match → inline unknown-entity reply, zero service calls, `logger.warn`. —
+      DONE. Implemented as `OFFERED_ENTITY_SELECTORS` map + `resolveOfferedEntity`. Gate runs once per
+      `callback_query`, fetching `/states` before dispatch; `camera_pick`/`camera_img`/`camera_vid30`
+      now reuse `gate.offered` instead of a second lookup (net-neutral fetch count for camera actions,
+      +1 `/states` call for light/cover, matching the design's accepted tradeoff). Used `console.warn`
+      (matching the file's existing un-migrated logger usage; `logger` param is still only wired to the
+      constructor log lines per unit 2a's scope).
+- [x] 5.3 GREEN: confirm 5.1's test passes against the real gate. — DONE, all 5 gate tests green.
+- [x] 5.4 In `src/telegram.js:205-244`, add the `isAllowed(chatId, allowedChatIds)` check to the
       `/start` and `/help` handlers (currently ungated); leave `/chatid` (current `:246-249`)
-      intentionally ungated.
-- [ ] 5.5 RED: add a failing case asserting unauthorized `/start` is denied.
-- [ ] 5.6 GREEN: confirm 5.5 passes.
-- [ ] 5.7 In `src/index.js`, write `export function installProcessHandlers({ bot, processRef =
+      intentionally ungated. — DONE. Added an explanatory English comment above `/chatid` referencing
+      the bot-authorization spec's "Stays Ungated By Design" requirement.
+- [x] 5.5 RED: add a failing case asserting unauthorized `/start` is denied. — DONE: new
+      `describe("createTelegramBot /start and /help gating", ...)` block (6 tests: /start denied,
+      /start allowed, /start with empty allow-list, /help denied, /help allowed, /chatid still
+      reachable). Structural line-count assertions (`text.split("\n").length`) distinguish the short
+      denial reply from the multi-line command list without asserting exact copy.
+- [x] 5.6 GREEN: confirm 5.5 passes. — DONE.
+- [x] 5.7 In `src/index.js`, write `export function installProcessHandlers({ bot, processRef =
       process, exit = process.exit, logger = console, timeoutMs = 10_000 })`: SIGTERM/SIGINT handler
       with a `shuttingDown` guard calling `await bot.stopPolling({ cancel: true })` then `exit(0)`, a
       `timeoutMs` force-exit timer for a hung stop; `unhandledRejection` logs only, never exits;
       `uncaughtException` logs then `exit(1)`. Wire it into `bootstrap` (no longer discarding the bot
-      return at current `:53`).
-- [ ] 5.8 RED: in `tests/index.test.js`, add a failing case with a fake `EventEmitter` `processRef` and
-      a recording `exit` spy: SIGTERM sent twice → exactly one `stopPolling` call, one `exit(0)` call.
-- [ ] 5.9 RED: add cases for `unhandledRejection` (never exits) and `uncaughtException` (exits
-      non-zero).
-- [ ] 5.10 GREEN: confirm 5.8-5.9 pass against the real `installProcessHandlers`.
-- [ ] 5.11 In `src/telegram.js:576-578`, extend the `polling_error` log to include `error.code`.
-- [ ] 5.12 Verify: `node --test`; `git diff --stat` ≈220 before opening PR 5.
+      return at current `:53`). — DONE, wired into `bootstrap` with new optional `processRef`/`exit`/
+      `shutdownTimeoutMs` params (all defaulting to production values). Also updated the 3 pre-existing
+      `bootstrap` tests to inject a fake `EventEmitter` `processRef` + no-op `exit`, since `bootstrap`
+      now unconditionally registers process-level signal/error handlers — without the fake, those tests
+      would have attached real listeners to the actual Node process shared across the whole test run.
+- [x] 5.8 RED: in `tests/index.test.js`, add a failing case with a fake `EventEmitter` `processRef` and
+      a recording `exit` spy: SIGTERM sent twice → exactly one `stopPolling` call, one `exit(0)` call. —
+      DONE: new `describe("installProcessHandlers", ...)` block, 5 tests (SIGTERM, repeated SIGTERM,
+      SIGINT, unhandledRejection, uncaughtException).
+- [x] 5.9 RED: add cases for `unhandledRejection` (never exits) and `uncaughtException` (exits
+      non-zero). — DONE.
+- [x] 5.10 GREEN: confirm 5.8-5.9 pass against the real `installProcessHandlers`. — DONE, all 5 pass.
+- [x] 5.11 In `src/telegram.js:576-578`, extend the `polling_error` log to include `error.code`. —
+      DONE.
+- [x] 5.12 Verify: `node --test`; `git diff --stat` ≈220 before opening PR 5. — MEASURED: `git diff
+      --numstat HEAD -- src/ tests/` = 384 changed lines (src/index.js 58+/0-, src/telegram.js 75+/20-,
+      tests/index.test.js 98+/1-, tests/telegram.test.js 132+/0-). Over the ~220 estimate (test-assertion
+      volume, consistent with the pattern already seen in units 2a/2b) but under the 400 budget, no
+      exception needed. Full suite: `node --test` → 103/103 passing (was 86/86, +17 new tests), zero
+      regressions.
 
 ## Phase 6: haClient DRY + Shared Keyboard Builders (Unit 4 — PR 6)
 
