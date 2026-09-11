@@ -176,12 +176,12 @@ export function createHomeAssistantClient({
             { path: `/camera_proxy/${encodedEntityId}`, useApiBase: true },
             { path: `/api/camera_proxy/${encodedEntityId}`, useApiBase: false },
           ],
-          "camera snapshot"
+          "camera snapshot",
         );
       } catch (error) {
         logger.warn(
           `[HA API] Snapshot proxy unavailable for ${entityId}, falling back to service:`,
-          error.message
+          error.message,
         );
 
         // Skip the proxy on later calls only when every candidate raised a
@@ -204,10 +204,10 @@ export function createHomeAssistantClient({
     });
 
     try {
-      return await retryForNonEmpty(
-        () => getMediaFile(publicPath, { onlyOriginalPath: true }),
-        { attempts: HA_RETRY.ATTEMPTS, delayMs: HA_RETRY.DELAY_MS }
-      );
+      return await retryForNonEmpty(() => getMediaFile(publicPath, { onlyOriginalPath: true }), {
+        attempts: HA_RETRY.ATTEMPTS,
+        delayMs: HA_RETRY.DELAY_MS,
+      });
     } catch (error) {
       // Avoid long retry loops: if the camera keeps returning invalid bytes,
       // pause retries for a cooldown window.
@@ -240,21 +240,21 @@ export function createHomeAssistantClient({
     const candidatePaths = onlyOriginalPath
       ? [normalizedPath]
       : [
-        normalizedPath,
-        normalizedPath.startsWith("/media/local/")
-          ? normalizedPath.replace("/media/local/", "/media/")
-          : normalizedPath,
-        normalizedPath.startsWith("/media/local/")
-          ? normalizedPath.replace("/media/local/", "/api/media_proxy/media/")
-          : normalizedPath,
-        normalizedPath.startsWith("/media/")
-          ? normalizedPath.replace("/media/", "/api/media_proxy/media/")
-          : normalizedPath,
-      ];
+          normalizedPath,
+          normalizedPath.startsWith("/media/local/")
+            ? normalizedPath.replace("/media/local/", "/media/")
+            : normalizedPath,
+          normalizedPath.startsWith("/media/local/")
+            ? normalizedPath.replace("/media/local/", "/api/media_proxy/media/")
+            : normalizedPath,
+          normalizedPath.startsWith("/media/")
+            ? normalizedPath.replace("/media/", "/api/media_proxy/media/")
+            : normalizedPath,
+        ];
 
     return fetchFirstNonEmpty(
       candidatePaths.map((path) => ({ path, useApiBase: false })),
-      "media file"
+      "media file",
     );
   }
 

@@ -84,12 +84,7 @@ export function getActiveBinarySensors(states) {
 }
 
 export function getOpenDoorsAndWindows(states) {
-  const validClasses = new Set([
-    "door",
-    "garage_door",
-    "window",
-    "opening",
-  ]);
+  const validClasses = new Set(["door", "garage_door", "window", "opening"]);
 
   return states
     .filter((e) => e.entity_id.startsWith("binary_sensor."))
@@ -132,51 +127,33 @@ export function getTemperatures(states) {
 export function formatLights(states) {
   const lightsOn = getLightsOn(states);
 
-  return [
-    "💡 Lights on",
-    "",
-    bulletList(lightsOn, "No lights on"),
-  ].join("\n");
+  return ["💡 Lights on", "", bulletList(lightsOn, "No lights on")].join("\n");
 }
 
 export function formatSensors(states) {
   const sensors = getActiveBinarySensors(states);
 
-  return [
-    "📡 Active sensors",
-    "",
-    bulletList(sensors, "No active sensors"),
-  ].join("\n");
+  return ["📡 Active sensors", "", bulletList(sensors, "No active sensors")].join("\n");
 }
 
 export function formatDoors(states) {
   const doors = getOpenDoorsAndWindows(states);
 
-  return [
-    "🚪 Open doors / windows",
-    "",
-    bulletList(doors, "Everything closed"),
-  ].join("\n");
+  return ["🚪 Open doors / windows", "", bulletList(doors, "Everything closed")].join("\n");
 }
 
 export function formatBatteries(states, threshold) {
   const batteries = getLowBatteries(states, threshold);
 
-  return [
-    `🔋 Low batteries <= ${threshold}%`,
-    "",
-    bulletList(batteries, "No low batteries"),
-  ].join("\n");
+  return [`🔋 Low batteries <= ${threshold}%`, "", bulletList(batteries, "No low batteries")].join(
+    "\n",
+  );
 }
 
 export function formatTemperatures(states) {
   const temps = getTemperatures(states);
 
-  return [
-    "🌡️ Temperatures",
-    "",
-    bulletList(temps, "No temperature sensors"),
-  ].join("\n");
+  return ["🌡️ Temperatures", "", bulletList(temps, "No temperature sensors")].join("\n");
 }
 
 export function formatFullStatus(states, lowBatteryThreshold) {

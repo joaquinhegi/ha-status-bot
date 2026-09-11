@@ -1,5 +1,5 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { createHomeAssistantClient } from "../src/haClient.js";
 
@@ -116,10 +116,7 @@ describe("createHomeAssistantClient", () => {
       });
 
       const [url, options] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(
-        url,
-        "http://supervisor/core/api/services/light/turn_off"
-      );
+      assert.strictEqual(url, "http://supervisor/core/api/services/light/turn_off");
       assert.strictEqual(options.method, "POST");
       assert.deepStrictEqual(JSON.parse(options.body), {
         entity_id: "light.salon",
@@ -153,10 +150,7 @@ describe("createHomeAssistantClient", () => {
       const result = await ha.getCameraSnapshot("camera.entrada");
 
       const [url, options] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(
-        url,
-        "http://supervisor/core/api/camera_proxy/camera.entrada"
-      );
+      assert.strictEqual(url, "http://supervisor/core/api/camera_proxy/camera.entrada");
       assert.ok(Buffer.isBuffer(result.buffer));
       assert.strictEqual(result.contentType, "application/json");
       assert.strictEqual(options.headers.Authorization, "Bearer test-token");
@@ -187,7 +181,9 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(url3, "http://supervisor/core/api/services/camera/snapshot");
       assert.strictEqual(options3.method, "POST");
       assert.ok(
-        url4.startsWith("http://supervisor/core/media/local/ha_status_bot_snapshot_camera_entrada_")
+        url4.startsWith(
+          "http://supervisor/core/media/local/ha_status_bot_snapshot_camera_entrada_",
+        ),
       );
       assert.ok(url4.endsWith(".jpg"));
     });
@@ -203,10 +199,7 @@ describe("createHomeAssistantClient", () => {
       const result = await ha.recordCameraClip("camera.patio", 30);
 
       const [url, options] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(
-        url,
-        "http://supervisor/core/api/services/camera/record"
-      );
+      assert.strictEqual(url, "http://supervisor/core/api/services/camera/record");
       assert.strictEqual(options.method, "POST");
 
       const payload = JSON.parse(options.body);
@@ -298,9 +291,7 @@ describe("createHomeAssistantClient", () => {
     it("keeps using the proxy path after an empty snapshot, and abandons it only when every proxy candidate raises a request error", async () => {
       // Every proxy candidate answers 200 with an empty body: the endpoint is
       // reachable, so the blank frame must be treated as transient.
-      mockFetchSequence([
-        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
-      ]);
+      mockFetchSequence([{ status: 200, body: {}, arrayBuffer: Buffer.alloc(0) }]);
 
       const now = makeControllableNow(1_700_000_000_000);
       const ha = createHomeAssistantClient({

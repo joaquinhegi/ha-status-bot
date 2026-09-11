@@ -1,19 +1,19 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import {
-  getLightsOn,
-  getAllCameras,
-  getActiveBinarySensors,
-  getOpenDoorsAndWindows,
-  getLowBatteries,
-  getTemperatures,
+  formatBatteries,
+  formatDoors,
+  formatFullStatus,
   formatLights,
   formatSensors,
-  formatDoors,
-  formatBatteries,
   formatTemperatures,
-  formatFullStatus,
+  getActiveBinarySensors,
+  getAllCameras,
+  getLightsOn,
+  getLowBatteries,
+  getOpenDoorsAndWindows,
+  getTemperatures,
 } from "../src/formatter.js";
 
 // ─── Fixtures ───────────────────────────────────────────────
@@ -199,9 +199,7 @@ describe("getOpenDoorsAndWindows", () => {
   });
 
   it("returns an empty array when everything is closed", () => {
-    const states = [
-      makeEntity("binary_sensor.puerta", "off", { device_class: "door" }),
-    ];
+    const states = [makeEntity("binary_sensor.puerta", "off", { device_class: "door" })];
     assert.deepStrictEqual(getOpenDoorsAndWindows(states), []);
   });
 });

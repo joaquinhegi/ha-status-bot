@@ -1,8 +1,13 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import { describe, it } from "node:test";
 
-import { HA_DEFAULT_BASE_URL, bootstrap, installProcessHandlers, loadConfig } from "../src/index.js";
+import {
+  bootstrap,
+  HA_DEFAULT_BASE_URL,
+  installProcessHandlers,
+  loadConfig,
+} from "../src/index.js";
 
 function makeOptions(overrides = {}) {
   return {
@@ -67,14 +72,14 @@ describe("loadConfig", () => {
   it("throws naming SUPERVISOR_TOKEN when missing", () => {
     assert.throws(
       () => loadConfig({ env: {}, readFile: fakeReadFile(makeOptions()) }),
-      /SUPERVISOR_TOKEN/
+      /SUPERVISOR_TOKEN/,
     );
   });
 
   it("throws naming homeassistant_api guidance when SUPERVISOR_TOKEN is missing", () => {
     assert.throws(
       () => loadConfig({ env: {}, readFile: fakeReadFile(makeOptions()) }),
-      /homeassistant_api/
+      /homeassistant_api/,
     );
   });
 
@@ -130,7 +135,7 @@ describe("loadConfig", () => {
           env: fakeEnv(),
           readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: 150 })),
         }),
-      /low_battery_threshold_percent/
+      /low_battery_threshold_percent/,
     );
   });
 
@@ -141,7 +146,7 @@ describe("loadConfig", () => {
           env: fakeEnv(),
           readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: -5 })),
         }),
-      /low_battery_threshold_percent/
+      /low_battery_threshold_percent/,
     );
   });
 
@@ -151,7 +156,7 @@ describe("loadConfig", () => {
 
     assert.throws(
       () => loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) }),
-      /telegram_bot_token/
+      /telegram_bot_token/,
     );
   });
 

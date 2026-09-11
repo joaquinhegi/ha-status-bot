@@ -6,9 +6,9 @@ import {
   formatFullStatus,
   formatSensors,
   formatTemperatures,
-  getAllLights,
-  getAllCovers,
   getAllCameras,
+  getAllCovers,
+  getAllLights,
 } from "./formatter.js";
 
 function isAllowed(chatId, allowedChatIds) {
@@ -127,7 +127,11 @@ async function waitForMediaFile(ha, mediaPath, timeoutMs = 45000, intervalMs = 2
 
 function isExpiredCallbackError(error) {
   const msg = String(error?.message || "").toLowerCase();
-  return msg.includes("query is too old") || msg.includes("query id is invalid") || msg.includes("response timeout expired");
+  return (
+    msg.includes("query is too old") ||
+    msg.includes("query id is invalid") ||
+    msg.includes("response timeout expired")
+  );
 }
 
 async function safeAnswerCallback(bot, callbackId, text) {
@@ -164,7 +168,7 @@ async function sendPhotoWithFallback(bot, chatId, buffer, caption, fileName, con
       chatId,
       buffer,
       { caption: `${caption} (sent as file)` },
-      { filename: fileName, contentType }
+      { filename: fileName, contentType },
     );
   }
 }
@@ -180,7 +184,7 @@ async function sendVideoWithFallback(bot, chatId, buffer, caption, fileName, con
       chatId,
       buffer,
       { caption: `${caption} (sent as file)` },
-      { filename: fileName, contentType }
+      { filename: fileName, contentType },
     );
   }
 }
@@ -249,10 +253,7 @@ export function createTelegramBot({
 
     if (!isAllowed(chatId, allowedChatIds)) {
       console.log(`[Telegram] Unauthorized chat: ${chatId}`);
-      await bot.sendMessage(
-        chatId,
-        `Not authorized. Your chat_id is: ${chatId}`
-      );
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
       return;
     }
 
@@ -263,10 +264,7 @@ export function createTelegramBot({
       console.log(`[Telegram] Reply sent for ${cmdText} to chat_id=${chatId}`);
     } catch (error) {
       console.error(`[Telegram] Error processing ${cmdText}:`, error);
-      await bot.sendMessage(
-        chatId,
-        `Error querying Home Assistant: ${error.message}`
-      );
+      await bot.sendMessage(chatId, `Error querying Home Assistant: ${error.message}`);
     }
   }
 
@@ -295,7 +293,7 @@ export function createTelegramBot({
         "/battery - Low batteries",
         "/temperature - Temperatures",
         "/chatid - View your chat_id",
-      ].join("\n")
+      ].join("\n"),
     );
   });
 
@@ -321,7 +319,7 @@ export function createTelegramBot({
         "/battery",
         "/temperature",
         "/chatid",
-      ].join("\n")
+      ].join("\n"),
     );
   });
 
@@ -336,9 +334,7 @@ export function createTelegramBot({
 
   bot.onText(/\/status/, (msg) => {
     console.log(`[Telegram] /status from chat_id=${msg.chat.id}`);
-    return handleCommand(msg, (states) =>
-      formatFullStatus(states, lowBatteryThreshold)
-    );
+    return handleCommand(msg, (states) => formatFullStatus(states, lowBatteryThreshold));
   });
 
   bot.onText(/\/lights/, async (msg) => {
@@ -384,9 +380,7 @@ export function createTelegramBot({
 
   bot.onText(/\/battery/, (msg) => {
     console.log(`[Telegram] /battery from chat_id=${msg.chat.id}`);
-    return handleCommand(msg, (states) =>
-      formatBatteries(states, lowBatteryThreshold)
-    );
+    return handleCommand(msg, (states) => formatBatteries(states, lowBatteryThreshold));
   });
 
   bot.onText(/\/temperature/, (msg) => {
@@ -459,7 +453,9 @@ export function createTelegramBot({
     const [action, ...payloadParts] = query.data.split(":");
     const entityId = payloadParts.join(":");
     const answer = (text) => safeAnswerCallback(bot, query.id, text);
-    console.log(`[Telegram] Callback: ${action} → ${entityId || "(no payload)"} from chat_id=${chatId}`);
+    console.log(
+      `[Telegram] Callback: ${action} → ${entityId || "(no payload)"} from chat_id=${chatId}`,
+    );
 
     if (!isAllowed(chatId, allowedChatIds)) {
       console.log(`[Telegram] Unauthorized callback: chat_id=${chatId}`);
@@ -472,7 +468,9 @@ export function createTelegramBot({
       const gate = resolveOfferedEntity(action, entityId, states);
 
       if (gate.requiresEntity && !gate.offered) {
-        console.warn(`[Telegram] Rejected entity not offered: ${action} -> ${entityId || "(no payload)"}`);
+        console.warn(
+          `[Telegram] Rejected entity not offered: ${action} -> ${entityId || "(no payload)"}`,
+        );
         await answer("Entity not authorized.");
         return;
       }
@@ -537,7 +535,7 @@ export function createTelegramBot({
           snapshot.buffer,
           `📷 ${selected?.name || entityId}`,
           `${entityId.replace(/\W+/g, "_")}.jpg`,
-          snapshot.contentType
+          snapshot.contentType,
         );
         return;
       } else if (action === "camera_vid30") {
@@ -545,7 +543,10 @@ export function createTelegramBot({
 
         const selected = gate.offered;
 
-        await bot.sendMessage(chatId, `🎥 Recording 30 seconds of ${selected?.name || entityId}...`);
+        await bot.sendMessage(
+          chatId,
+          `🎥 Recording 30 seconds of ${selected?.name || entityId}...`,
+        );
 
         try {
           const clip = await ha.recordCameraClip(entityId, 30);
@@ -557,13 +558,13 @@ export function createTelegramBot({
             video.buffer,
             `🎥 ${selected?.name || entityId} (30s)`,
             `${entityId.replace(/\W+/g, "_")}_30s.mp4`,
-            video.contentType
+            video.contentType,
           );
         } catch (recordError) {
           if (recordError.path === "/services/camera/record" && recordError.status >= 500) {
             await bot.sendMessage(
               chatId,
-              "⚠️ This camera does not support recording video from Home Assistant (camera.record). Sending a photo instead."
+              "⚠️ This camera does not support recording video from Home Assistant (camera.record). Sending a photo instead.",
             );
 
             const snapshot = await waitForSnapshot(ha, entityId);
@@ -573,7 +574,7 @@ export function createTelegramBot({
               snapshot.buffer,
               `📷 ${selected?.name || entityId}`,
               `${entityId.replace(/\W+/g, "_")}.jpg`,
-              snapshot.contentType
+              snapshot.contentType,
             );
             return;
           }
@@ -595,17 +596,19 @@ export function createTelegramBot({
         const keyboard = buildLightKeyboard(getAllLights(refreshedStates));
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
-          { chat_id: chatId, message_id: query.message.message_id }
+          { chat_id: chatId, message_id: query.message.message_id },
         );
       } else if (action.startsWith("cover_")) {
         const keyboard = buildCoverKeyboard(getAllCovers(refreshedStates));
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
-          { chat_id: chatId, message_id: query.message.message_id }
+          { chat_id: chatId, message_id: query.message.message_id },
         );
       }
     } catch (error) {
-      console.error(`[Telegram] Error processing callback ${action} → ${entityId}: ${error.message}`);
+      console.error(
+        `[Telegram] Error processing callback ${action} → ${entityId}: ${error.message}`,
+      );
       try {
         await bot.sendMessage(chatId, `⚠️ Error in ${action}: ${error.message}`);
       } catch {
