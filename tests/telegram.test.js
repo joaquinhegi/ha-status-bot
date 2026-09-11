@@ -232,6 +232,186 @@ describe("createTelegramBot simple read commands", () => {
   });
 });
 
+describe("createTelegramBot /lights command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeLightEntity("kitchen")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/lights", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per light", async () => {
+    const lights = [makeLightEntity("kitchen", "on"), makeLightEntity("hall", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitText("/lights", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, lights.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("light_off:light.kitchen"));
+    assert.ok(callbackDataValues.includes("light_on:light.hall"));
+  });
+
+  it("replies without an inline keyboard when there are no lights", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/lights", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+
+  it("replies without throwing when HA fails", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        throw new Error("boom");
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitText("/lights", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+});
+
+describe("createTelegramBot /covers command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeCoverEntity("garage")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/covers", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per cover", async () => {
+    const covers = [makeCoverEntity("garage", "closed"), makeCoverEntity("gate", "open")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitText("/covers", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, covers.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("cover_open:cover.garage"));
+    assert.ok(callbackDataValues.includes("cover_close:cover.gate"));
+  });
+
+  it("replies without an inline keyboard when there are no covers", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/covers", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+
+  it("replies without throwing when HA fails", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        throw new Error("boom");
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitText("/covers", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+});
+
+describe("createTelegramBot /cameras command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeCameraEntity("front")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/cameras", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per camera", async () => {
+    const cameras = [makeCameraEntity("front"), makeCameraEntity("back")];
+    const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitText("/cameras", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, cameras.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("camera_pick:camera.front"));
+    assert.ok(callbackDataValues.includes("camera_pick:camera.back"));
+  });
+
+  it("replies without an inline keyboard when there are no cameras", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/cameras", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+
+  it("replies without throwing when HA fails", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        throw new Error("boom");
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitText("/cameras", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+});
+
 describe("createTelegramBot reply chunking", () => {
   it("sends a single message when the formatted reply is under the chunk limit", async () => {
     const states = [makeLightEntity("kitchen")];
