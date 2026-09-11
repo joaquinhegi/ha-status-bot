@@ -69,7 +69,7 @@ describe("createHomeAssistantClient", () => {
   }
 
   describe("getStates", () => {
-    it("llama a GET /states con las cabeceras correctas", async () => {
+    it("calls GET /states with the correct headers", async () => {
       const fakeStates = [{ entity_id: "light.test", state: "on" }];
       mockFetch(200, fakeStates);
 
@@ -88,7 +88,7 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(options.headers["Content-Type"], "application/json");
     });
 
-    it("lanza error si la respuesta no es OK", async () => {
+    it("throws when the response is not ok", async () => {
       mockFetch(401, { message: "Unauthorized" });
 
       const ha = createHomeAssistantClient({
@@ -103,7 +103,7 @@ describe("createHomeAssistantClient", () => {
   });
 
   describe("callService", () => {
-    it("envía POST con los datos de servicio", async () => {
+    it("sends a POST carrying the service data", async () => {
       mockFetch(200, []);
 
       const ha = createHomeAssistantClient({
@@ -123,7 +123,7 @@ describe("createHomeAssistantClient", () => {
       });
     });
 
-    it("envía POST sin datos por defecto", async () => {
+    it("sends a POST with an empty payload by default", async () => {
       mockFetch(200, []);
 
       const ha = createHomeAssistantClient({
@@ -139,7 +139,7 @@ describe("createHomeAssistantClient", () => {
   });
 
   describe("camera methods", () => {
-    it("descarga snapshot de cámara como binario", async () => {
+    it("downloads a camera snapshot as binary", async () => {
       mockFetch(200, { image: true });
 
       const ha = createHomeAssistantClient({
@@ -156,7 +156,7 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(options.headers.Authorization, "Bearer test-token");
     });
 
-    it("usa fallback de snapshot cuando falla camera_proxy directo", async () => {
+    it("falls back to the snapshot service when the direct camera_proxy fails", async () => {
       mockFetchSequence([
         { status: 404, body: { message: "not found" } },
         { status: 500, body: { message: "proxy failed" } },
@@ -188,7 +188,7 @@ describe("createHomeAssistantClient", () => {
       assert.ok(url4.endsWith(".jpg"));
     });
 
-    it("llama camera.record con duración y nombre de archivo", async () => {
+    it("calls camera.record with a duration and a file name", async () => {
       mockFetch(200, []);
 
       const ha = createHomeAssistantClient({
@@ -212,7 +212,7 @@ describe("createHomeAssistantClient", () => {
       assert.ok(result.publicPath.startsWith("/media/local/ha_status_bot_camera_patio_"));
     });
 
-    it("descarga media desde la URL raíz de Home Assistant", async () => {
+    it("downloads media from the Home Assistant root URL", async () => {
       mockFetch(200, { video: true });
 
       const ha = createHomeAssistantClient({
@@ -226,7 +226,7 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(url, "http://supervisor/core/media/local/clip.mp4");
     });
 
-    it("prueba rutas alternativas cuando no encuentra media", async () => {
+    it("tries alternative paths when the media file is not found", async () => {
       mockFetchSequence([
         { status: 404, body: { message: "not found" } },
         { status: 404, body: { message: "not found" } },
