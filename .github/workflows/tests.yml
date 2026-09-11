@@ -24,3 +24,9 @@ jobs:
 
       - name: Run coverage
         run: node --test --experimental-test-coverage tests/*.test.js
+
+      - name: Run lint and format check
+        run: npm run check
+
+      - name: Run language policy check
+        run: npm run check:lang

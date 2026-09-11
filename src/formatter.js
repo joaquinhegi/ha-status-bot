@@ -7,8 +7,8 @@ function isUnavailable(entity) {
 }
 
 // Collation is matched to the Spanish-language entity data this bot reads
-// from a Spanish-speaking Home Assistant instance (e.g. accented names like
-// "Salón"), not to the interface language. Keep "es" even after the
+// from a Spanish-speaking Home Assistant instance (accented friendly names
+// are common there), not to the interface language. Keep "es" even after the
 // English-copy normalization below — switching to a locale-neutral compare
 // would silently change sort order for those names.
 function byFriendlyName(a, b) {

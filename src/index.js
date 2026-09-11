@@ -50,6 +50,9 @@ function buildOptionFields(options) {
   ];
 }
 
+// biome-ignore lint/style/noProcessEnv: loadConfig is the single authorized
+// entry point for reading process.env; every other module receives config
+// through injected parameters (see design Decision 2).
 export function loadConfig({ env = process.env, readFile = defaultReadFile } = {}) {
   const optionsPath = env.OPTIONS_PATH || "/data/options.json";
   console.log(`Loading options from ${optionsPath}...`);
