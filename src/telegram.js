@@ -48,6 +48,35 @@ function buildCameraListKeyboard(cameras) {
   ]);
 }
 
+function buildLightKeyboard(lights) {
+  return lights.map((light) => {
+    const icon = light.state === "on" ? "🟡" : "⚫";
+    const actionLabel = light.state === "on" ? "Apagar" : "Encender";
+    const action = light.state === "on" ? "light_off" : "light_on";
+    return [
+      {
+        text: `${icon} ${light.name} → ${actionLabel}`,
+        callback_data: `${action}:${light.entity_id}`,
+      },
+    ];
+  });
+}
+
+function buildCoverKeyboard(covers) {
+  return covers.map((cover) => {
+    const isOpen = cover.state === "open";
+    const icon = isOpen ? "🟢" : "🔴";
+    const actionLabel = isOpen ? "Cerrar" : "Abrir";
+    const action = isOpen ? "cover_close" : "cover_open";
+    return [
+      {
+        text: `${icon} ${cover.name} (${cover.state}) → ${actionLabel}`,
+        callback_data: `${action}:${cover.entity_id}`,
+      },
+    ];
+  });
+}
+
 function cameraOptionsKeyboard(entityId) {
   return [
     [
@@ -333,17 +362,7 @@ export function createTelegramBot({
         return;
       }
 
-      const keyboard = lights.map((light) => {
-        const icon = light.state === "on" ? "🟡" : "⚫";
-        const actionLabel = light.state === "on" ? "Apagar" : "Encender";
-        const action = light.state === "on" ? "light_off" : "light_on";
-        return [
-          {
-            text: `${icon} ${light.name} → ${actionLabel}`,
-            callback_data: `${action}:${light.entity_id}`,
-          },
-        ];
-      });
+      const keyboard = buildLightKeyboard(lights);
 
       await bot.sendMessage(chatId, "💡 Luces:", {
         reply_markup: { inline_keyboard: keyboard },
@@ -396,18 +415,7 @@ export function createTelegramBot({
         return;
       }
 
-      const keyboard = covers.map((cover) => {
-        const isOpen = cover.state === "open";
-        const icon = isOpen ? "🟢" : "🔴";
-        const actionLabel = isOpen ? "Cerrar" : "Abrir";
-        const action = isOpen ? "cover_close" : "cover_open";
-        return [
-          {
-            text: `${icon} ${cover.name} (${cover.state}) → ${actionLabel}`,
-            callback_data: `${action}:${cover.entity_id}`,
-          },
-        ];
-      });
+      const keyboard = buildCoverKeyboard(covers);
 
       await bot.sendMessage(chatId, "🪟 Persianas:", {
         reply_markup: { inline_keyboard: keyboard },
@@ -585,36 +593,13 @@ export function createTelegramBot({
       const refreshedStates = await ha.getStates();
 
       if (action.startsWith("light_")) {
-        const lights = getAllLights(refreshedStates);
-        const keyboard = lights.map((light) => {
-          const icon = light.state === "on" ? "🟡" : "⚫";
-          const actionLabel = light.state === "on" ? "Apagar" : "Encender";
-          const cbAction = light.state === "on" ? "light_off" : "light_on";
-          return [
-            {
-              text: `${icon} ${light.name} → ${actionLabel}`,
-              callback_data: `${cbAction}:${light.entity_id}`,
-            },
-          ];
-        });
+        const keyboard = buildLightKeyboard(getAllLights(refreshedStates));
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
           { chat_id: chatId, message_id: query.message.message_id }
         );
       } else if (action.startsWith("cover_")) {
-        const covers = getAllCovers(refreshedStates);
-        const keyboard = covers.map((cover) => {
-          const isOpen = cover.state === "open";
-          const icon = isOpen ? "🟢" : "🔴";
-          const actionLabel = isOpen ? "Cerrar" : "Abrir";
-          const cbAction = isOpen ? "cover_close" : "cover_open";
-          return [
-            {
-              text: `${icon} ${cover.name} (${cover.state}) → ${actionLabel}`,
-              callback_data: `${cbAction}:${cover.entity_id}`,
-            },
-          ];
-        });
+        const keyboard = buildCoverKeyboard(getAllCovers(refreshedStates));
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
           { chat_id: chatId, message_id: query.message.message_id }

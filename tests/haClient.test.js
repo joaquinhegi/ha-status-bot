@@ -38,12 +38,30 @@ describe("createHomeAssistantClient", () => {
         status: current.status,
         json: async () => current.body,
         text: async () => JSON.stringify(current.body),
-        arrayBuffer: async () => Buffer.from(JSON.stringify(current.body)),
+        arrayBuffer: async () => current.arrayBuffer ?? Buffer.from(JSON.stringify(current.body)),
         headers: {
           get: () => current.contentType || "application/json",
         },
       };
     });
+  }
+
+  function makeControllableNow(startValue) {
+    let current = startValue;
+    const now = () => current;
+    now.advance = (ms) => {
+      current += ms;
+    };
+    return now;
+  }
+
+  function makeSleepSpy() {
+    const calls = [];
+    const sleep = async (ms) => {
+      calls.push(ms);
+    };
+    sleep.calls = calls;
+    return sleep;
   }
 
   describe("getStates", () => {
@@ -233,6 +251,44 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(u1, "http://supervisor/core/media/local/clip.mp4");
       assert.strictEqual(u2, "http://supervisor/core/media/clip.mp4");
       assert.strictEqual(u3, "http://supervisor/core/api/media_proxy/media/clip.mp4");
+    });
+  });
+
+  describe("camera snapshot retry and cooldown", () => {
+    it("retries HA_RETRY.ATTEMPTS times via the injected sleep before giving up, then pauses further attempts during the cooldown window", async () => {
+      mockFetchSequence([
+        { status: 404, body: { message: "not found" } },
+        { status: 500, body: { message: "proxy failed" } },
+        { status: 200, body: [] },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+      ]);
+
+      const sleep = makeSleepSpy();
+      const now = makeControllableNow(1_700_000_000_000);
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        sleep,
+        now,
+      });
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      assert.strictEqual(sleep.calls.length, 3);
+      assert.deepStrictEqual(sleep.calls, [1200, 1200, 1200]);
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
+
+      now.advance(1000);
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"), {
+        message: /Retry in \d+s/,
+      });
+
+      // The cooldown branch rejects without any new HA request.
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
     });
   });
 });
