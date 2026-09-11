@@ -217,50 +217,72 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
       exception needed. Full suite: `node --test` → 103/103 passing (was 86/86, +17 new tests), zero
       regressions.
 
-## Phase 6: haClient DRY + Shared Keyboard Builders (Unit 4 — PR 6)
+## Phase 6: haClient DRY + Shared Keyboard Builders (Unit 4 — PR 6) — DONE
 
-- [ ] 6.1 In `src/haClient.js`, replace the literals `3` (`:137`), `1200` (`:150`), `5*60*1000`
+- [x] 6.1 In `src/haClient.js`, replace the literals `3` (`:137`), `1200` (`:150`), `5*60*1000`
       (`:154`) with a frozen `HA_RETRY = { ATTEMPTS: 3, DELAY_MS: 1200, SNAPSHOT_COOLDOWN_MS: 5 * 60 *
-      1000 }` module-level constant.
-- [ ] 6.2 In `src/haClient.js`, extract a private `fetchFirstNonEmpty(candidates, label)` unifying the
+      1000 }` module-level constant. — DONE.
+- [x] 6.2 In `src/haClient.js`, extract a private `fetchFirstNonEmpty(candidates, label)` unifying the
       candidate-URL fallback chains currently duplicated in `getCameraSnapshot` (`:99-123`) and
-      `getMediaFile` (`:176-213`).
-- [ ] 6.3 In `src/haClient.js`, extract a private `retryForNonEmpty(fn, { attempts, delayMs })`
-      replacing the inline retry loop at `:135-151`.
-- [ ] 6.4 Add optional `fetchImpl = fetch`, `sleep = defaultSleep`, `now = Date.now`, `logger =
+      `getMediaFile` (`:176-213`). — DONE. Note: the unified loop now continues to the next candidate
+      on an empty-but-ok response too (previously the camera-proxy chain only advanced on a thrown
+      error, not on an empty 200). No existing test covers that edge; documented as a deviation below.
+- [x] 6.3 In `src/haClient.js`, extract a private `retryForNonEmpty(fn, { attempts, delayMs })`
+      replacing the inline retry loop at `:135-151`. — DONE.
+- [x] 6.4 Add optional `fetchImpl = fetch`, `sleep = defaultSleep`, `now = Date.now`, `logger =
       console` parameters to `createHomeAssistantClient`; wire the single construction site at
       `src/index.js:48` (now inside `bootstrap`) to pass them through unchanged by default. Public
       return shape (`getStates, callService, getCameraSnapshot, recordCameraClip, getMediaFile`) stays
-      identical.
-- [ ] 6.5 Translate the Spanish comment at `src/haClient.js:153` and the Spanish strings at
-      `:82,93,107,109,117,119,145,155,204,205,208,212` to English.
-- [ ] 6.6 In `src/telegram.js`, extract one shared keyboard-builder helper used by the light keyboard
+      identical. — DONE. `src/index.js`'s construction call needed no edit: all four new params default
+      to production behavior, so the additive inputs are invisible at the single call site, per design.
+- [x] 6.5 Translate the Spanish comment at `src/haClient.js:153` and the Spanish strings at
+      `:82,93,107,109,117,119,145,155,204,205,208,212` to English. — DONE, folded into the
+      `fetchFirstNonEmpty`/`retryForNonEmpty` consolidation (the per-candidate Spanish messages are now
+      the shared helpers' English messages).
+- [x] 6.6 In `src/telegram.js`, extract one shared keyboard-builder helper used by the light keyboard
       (current `:278-288`), the cover keyboard (current `:341-352`), and their duplicate refresh
       versions inside `callback_query` (current `:529-563`) — 4 near-identical builders collapse to 1
-      call site per domain.
-- [ ] 6.7 RED: in `tests/haClient.test.js`, add failing cases for the untested cooldown branch
-      (`:90-94`, using injected `now`) and retry-exhaustion (using injected `sleep` as a no-op).
-- [ ] 6.8 GREEN: confirm 6.7 passes against the real injected collaborators.
-- [ ] 6.9 Verify: `node --test tests/haClient.test.js tests/telegram.test.js`; confirm the
+      call site per domain. — DONE: `buildLightKeyboard(lights)` and `buildCoverKeyboard(covers)`, each
+      used at 2 call sites (initial keyboard + post-action refresh).
+- [x] 6.7 RED: in `tests/haClient.test.js`, add failing cases for the untested cooldown branch
+      (`:90-94`, using injected `now`) and retry-exhaustion (using injected `sleep` as a no-op). — DONE:
+      new `describe("camera snapshot retry and cooldown", ...)` block, 1 test covering both branches
+      (retry exhaustion via a recording `sleep` spy asserting 3 calls of 1200ms, then a second
+      `getCameraSnapshot` call within the cooldown window asserting zero new HTTP calls).
+- [x] 6.8 GREEN: confirm 6.7 passes against the real injected collaborators. — DONE.
+- [x] 6.9 Verify: `node --test tests/haClient.test.js tests/telegram.test.js`; confirm the
       `callService`/keyboard `callback_data` assertions from units 2a/2b/3 still pass unchanged
-      (public behavior net-neutral). `git diff --stat` ≈300 before opening PR 6.
+      (public behavior net-neutral). `git diff --stat` ≈300 before opening PR 6. — MEASURED: `git diff
+      --numstat HEAD -- src/ tests/` = 335 changed lines (`src/haClient.js` 114+/82-, `src/telegram.js`
+      33+/48-, `tests/haClient.test.js` 57+/1-). Over the ~300 estimate but under the 400 budget, no
+      exception needed. Full suite: `node --test` → 104/104 passing (was 103/103, +1 new test), zero
+      regressions.
 
-## Phase 7: English formatter.js (Unit 5a — PR 7)
+## Phase 7: English formatter.js (Unit 5a — PR 7) — DONE
 
-- [ ] 7.1 In `src/formatter.js`, translate all English-adjacent Spanish headings/labels: `"Ninguno"`
+- [x] 7.1 In `src/formatter.js`, translate all English-adjacent Spanish headings/labels: `"Ninguno"`
       (`:13`), `"💡 Luces encendidas"` / `"No hay luces encendidas"` (`:131,133`), `"📡 Sensores
       activos"` / `"No hay sensores activos"` (`:141,143`), `"🚪 Puertas / ventanas abiertas"` /
       `"Todo cerrado"` (`:151,153`), `"🔋 Baterías bajas <= …"` / `"No hay baterías bajas"`
       (`:161,163`), `"🌡️ Temperaturas"` / `"No hay sensores de temperatura"` (`:171,173`), and the
-      `formatFullStatus` heading block (`:185-200`).
-- [ ] 7.2 At `src/formatter.js:10` and `:123`, keep `localeCompare(..., "es")` unchanged; add an
+      `formatFullStatus` heading block (`:185-200`). — DONE.
+- [x] 7.2 At `src/formatter.js:10` and `:123`, keep `localeCompare(..., "es")` unchanged; add an
       English comment explaining collation is matched to the Spanish-language entity data, not to
-      interface language.
-- [ ] 7.3 Update `tests/formatter.test.js` `describe`/`it` titles to English and assertions to the new
+      interface language. — DONE. One comment block above `byFriendlyName` plus a one-line pointer
+      comment on `getTemperatures`'s inline `localeCompare(..., "es")` call.
+- [x] 7.3 Update `tests/formatter.test.js` `describe`/`it` titles to English and assertions to the new
       English output strings. Leave fixture `friendly_name` values (`:31-104`, e.g. `"Salón"`,
       `"Batería ventana"`) in Spanish — they are simulated HA data and the regression evidence for 7.2.
-- [ ] 7.4 Verify: `node --test tests/formatter.test.js`; confirm accented-name sort order assertions
-      still pass. `git diff --stat` ≈190 before opening PR 7.
+      — DONE. Also added one new regression test (`getTemperatures` accented-name sort order) and a
+      dedicated `describe("user-facing copy", ...)` block (6 tests) confining every exact-English-string
+      assertion; all pre-existing structural assertions were converted away from asserting on the
+      now-translated Spanish headings (they assert on bullet content / fixture names / message length
+      instead).
+- [x] 7.4 Verify: `node --test tests/formatter.test.js`; confirm accented-name sort order assertions
+      still pass. `git diff --stat` ≈190 before opening PR 7. — MEASURED: `git diff --numstat HEAD --
+      src/ tests/` = 218 changed lines (`src/formatter.js` 28+/23-, `tests/formatter.test.js` 112+/55-).
+      Under the 400 budget. Full suite: `node --test` → 111/111 passing (was 104/104, +7 new tests),
+      zero regressions.
 
 ## Phase 8: English telegram.js Copy + Command Renames (Unit 5b — PR 8)
 
