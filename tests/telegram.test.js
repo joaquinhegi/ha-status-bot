@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import { createTelegramBot } from "../src/telegram.js";
-import { FakeTelegramBot } from "./helpers/fakeTelegramBot.js";
+import { FakeTelegramBot, makeCallbackQuery } from "./helpers/fakeTelegramBot.js";
 
 const noopLogger = { log() {}, warn() {}, error() {} };
 
@@ -89,6 +89,22 @@ function makeTemperatureSensorEntity(id, value) {
       device_class: "temperature",
       unit_of_measurement: "°C",
     },
+  };
+}
+
+function makeCoverEntity(id, state = "closed") {
+  return {
+    entity_id: `cover.${id}`,
+    state,
+    attributes: { friendly_name: `Cover ${id}` },
+  };
+}
+
+function makeCameraEntity(id) {
+  return {
+    entity_id: `camera.${id}`,
+    state: "idle",
+    attributes: { friendly_name: `Camera ${id}` },
   };
 }
 
@@ -261,6 +277,228 @@ describe("createTelegramBot testability seam", () => {
 
     assert.strictEqual(receivedToken, "seam-test-token");
     assert.ok(bot.onTextHandlers.length > 0);
+  });
+});
+
+describe("createTelegramBot callback_query dispatch", () => {
+  it("light_on calls callService turn_on and refreshes the light keyboard", async () => {
+    const lights = [makeLightEntity("kitchen", "off"), makeLightEntity("hall", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen" })
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "light",
+      service: "turn_on",
+      data: { entity_id: "light.kitchen" },
+    });
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+    assert.strictEqual(bot.editedReplyMarkups.length, 1);
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, lights.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("light_on:light.kitchen"));
+  });
+
+  it("light_off calls callService turn_off and refreshes the light keyboard", async () => {
+    const lights = [makeLightEntity("kitchen", "on")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_off:light.kitchen" })
+    );
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "light",
+      service: "turn_off",
+      data: { entity_id: "light.kitchen" },
+    });
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 1);
+    assert.strictEqual(keyboard[0][0].callback_data, "light_off:light.kitchen");
+  });
+
+  it("cover_open calls callService open_cover and refreshes the cover keyboard", async () => {
+    const covers = [makeCoverEntity("garage", "closed")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "cover_open:cover.garage" })
+    );
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "cover",
+      service: "open_cover",
+      data: { entity_id: "cover.garage" },
+    });
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 1);
+    assert.strictEqual(keyboard[0][0].callback_data, "cover_open:cover.garage");
+  });
+
+  it("cover_close calls callService close_cover and refreshes the cover keyboard", async () => {
+    const covers = [makeCoverEntity("garage", "open")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "cover_close:cover.garage" })
+    );
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "cover",
+      service: "close_cover",
+      data: { entity_id: "cover.garage" },
+    });
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 1);
+    assert.strictEqual(keyboard[0][0].callback_data, "cover_close:cover.garage");
+  });
+
+  it("camera_pick edits the message with a 3-row options keyboard for the selected camera", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_pick:camera.front" })
+    );
+
+    assert.strictEqual(bot.editedTexts.length, 1);
+    const keyboard = bot.editedTexts[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 3);
+    assert.strictEqual(keyboard[0][0].callback_data, "camera_img:camera.front");
+    assert.strictEqual(keyboard[1][0].callback_data, "camera_vid30:camera.front");
+    assert.strictEqual(keyboard[2][0].callback_data, "camera_list");
+  });
+
+  it("camera_list edits the message with one keyboard row per available camera", async () => {
+    const cameras = [makeCameraEntity("front"), makeCameraEntity("back")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_list" }));
+
+    assert.strictEqual(bot.editedTexts.length, 1);
+    const keyboard = bot.editedTexts[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, cameras.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("camera_pick:camera.front"));
+    assert.ok(callbackDataValues.includes("camera_pick:camera.back"));
+  });
+});
+
+describe("createTelegramBot camera media flows", () => {
+  it("camera_img sends the snapshot buffer as a photo", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_img:camera.front" })
+    );
+
+    assert.strictEqual(ha.calls.getCameraSnapshot.length, 1);
+    assert.strictEqual(ha.calls.getCameraSnapshot[0], "camera.front");
+    assert.strictEqual(bot.sentPhotos.length, 1);
+    assert.strictEqual(bot.sentPhotos[0].fileOptions.contentType, "image/jpeg");
+  });
+
+  it("camera_vid30 records a clip and sends the resolved video buffer", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_vid30:camera.front" })
+    );
+
+    assert.strictEqual(ha.calls.recordCameraClip.length, 1);
+    assert.deepStrictEqual(ha.calls.recordCameraClip[0], {
+      entityId: "camera.front",
+      seconds: 30,
+    });
+    assert.ok(ha.calls.getMediaFile.includes("/fake/clip.mp4"));
+    assert.strictEqual(bot.sentVideos.length, 1);
+    assert.strictEqual(bot.sentVideos[0].fileOptions.contentType, "video/mp4");
+  });
+
+  it("falls back to a snapshot image when camera.record is unsupported (5xx)", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const recordError = new Error("record unsupported");
+    recordError.path = "/services/camera/record";
+    recordError.status = 501;
+    const { bot, ha } = setup({
+      states: cameras,
+      allowedChatIds: [],
+      haOverrides: {
+        onRecordCameraClip: () => {
+          throw recordError;
+        },
+      },
+    });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_vid30:camera.front" })
+    );
+
+    assert.strictEqual(bot.sentVideos.length, 0);
+    assert.strictEqual(bot.sentPhotos.length, 1);
+    assert.strictEqual(ha.calls.getCameraSnapshot.length, 1);
+  });
+
+  it("sends the photo as a document when sendPhoto fails", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+    bot.sendPhoto = async () => {
+      throw new Error("sendPhoto unavailable");
+    };
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_img:camera.front" })
+    );
+
+    assert.strictEqual(bot.sentPhotos.length, 0);
+    assert.strictEqual(bot.sentDocuments.length, 1);
+  });
+
+  it("sends the video as a document when sendVideo fails", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+    bot.sendVideo = async () => {
+      throw new Error("sendVideo unavailable");
+    };
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_vid30:camera.front" })
+    );
+
+    assert.strictEqual(bot.sentVideos.length, 0);
+    assert.strictEqual(bot.sentDocuments.length, 1);
+  });
+});
+
+describe("createTelegramBot callback_query unknown action", () => {
+  it("answers the callback without calling any HA service or editing the message", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "not_a_real_action:foo.bar" })
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+    assert.strictEqual(bot.editedTexts.length, 0);
+    assert.strictEqual(bot.editedReplyMarkups.length, 0);
   });
 });
 

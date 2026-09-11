@@ -146,14 +146,21 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
 
 ## Phase 4: Real telegram.js Coverage, Part 2 (Unit 2b — PR 4, test-only)
 
-- [ ] 4.1 Extend `tests/telegram.test.js` with structure-first cases for `callback_query` dispatch:
+- [x] 4.1 Extend `tests/telegram.test.js` with structure-first cases for `callback_query` dispatch:
       light on/off, cover open/close, `camera_pick`, `camera_list`, keyboard refresh after action —
-      assert `callback_data` values and row counts, not button labels.
-- [ ] 4.2 Add cases for `camera_img`/`camera_vid30` media flows and the `sendPhotoWithFallback`/
-      `sendVideoWithFallback` document-fallback branch, using `FakeTelegramBot`'s recorded calls.
-- [ ] 4.3 Add a case for the unknown-callback-action branch (`src/telegram.js:520-524`).
-- [ ] 4.4 Verify: `node --test tests/telegram.test.js`; confirm no production line changed in this
-      unit (test-only). `git diff --stat` ≈210.
+      assert `callback_data` values and row counts, not button labels. — DONE: new
+      `describe("createTelegramBot callback_query dispatch", ...)` block, 6 tests.
+- [x] 4.2 Add cases for `camera_img`/`camera_vid30` media flows and the `sendPhotoWithFallback`/
+      `sendVideoWithFallback` document-fallback branch, using `FakeTelegramBot`'s recorded calls. —
+      DONE: new `describe("createTelegramBot camera media flows", ...)` block, 5 tests (snapshot send,
+      recorded-clip send, 5xx record-unsupported fallback to snapshot, sendPhoto-fails-to-document,
+      sendVideo-fails-to-document).
+- [x] 4.3 Add a case for the unknown-callback-action branch (`src/telegram.js:520-524`). — DONE: new
+      `describe("createTelegramBot callback_query unknown action", ...)` block, 1 test.
+- [x] 4.4 Verify: `node --test tests/telegram.test.js`; confirm no production line changed in this
+      unit (test-only). `git diff --stat` ≈210. — MEASURED: `git diff --stat HEAD -- src/ tests/` =
+      240 changed lines (239+/1-), entirely in `tests/telegram.test.js`; `src/` has zero changes. Full
+      suite: 86/86 passing (was 74/74, +12 new tests), zero regressions.
 
 ## Phase 5: Authorization Hardening + Process Lifecycle (Unit 3 — PR 5)
 
