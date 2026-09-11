@@ -162,16 +162,19 @@ export function createTelegramBot({
   allowedChatIds,
   lowBatteryThreshold,
   ha,
+  createBot = (botToken) =>
+    new TelegramBot(botToken, {
+      polling: {
+        autoStart: false,
+      },
+    }),
+  logger = console,
 }) {
-  const bot = new TelegramBot(token, {
-    polling: {
-      autoStart: false,
-    },
-  });
+  const bot = createBot(token);
 
   bot.deleteWebHook({ drop_pending_updates: true }).then(() => {
     bot.startPolling();
-    console.log("[Telegram] Polling iniciado (webhook eliminado).");
+    logger.log("[Telegram] Polling iniciado (webhook eliminado).");
   });
 
   async function handleCommand(msg, formatter) {
@@ -577,6 +580,6 @@ export function createTelegramBot({
     console.error("[Telegram] Polling error:", error.message);
   });
 
-  console.log("Bot de Telegram iniciado.");
+  logger.log("Bot de Telegram iniciado.");
   return bot;
 }
