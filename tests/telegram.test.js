@@ -678,6 +678,54 @@ describe("createTelegramBot callback_query unknown action", () => {
   });
 });
 
+describe("createTelegramBot callback_query outer error handler", () => {
+  // The post-action keyboard refresh (see the "Refresh the inline keyboard"
+  // comment in src/telegram.js) has no try/catch of its own — it deliberately
+  // relies on the outer callback_query catch below it. This drives a failure
+  // through that exact refresh step (the action itself succeeds, the
+  // follow-up state re-fetch for the keyboard does not) to prove the outer
+  // handler is what reports it: an error reply to the chat and an error
+  // answer to the callback, rather than an unhandled rejection.
+  it("reports a keyboard-refresh failure via the outer catch, not the action branch", async () => {
+    const entityId = "light.kitchen";
+    let getStatesCalls = 0;
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        getStatesCalls += 1;
+        if (getStatesCalls === 1) {
+          return [makeLightEntity("kitchen", "off")];
+        }
+        throw new Error("refresh boom");
+      },
+      async callService() {
+        return {};
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `light_on:${entityId}`, chatId: 5, messageId: 9 }),
+    );
+
+    assert.strictEqual(getStatesCalls, 2);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.match(bot.sentMessages[0].text, /refresh boom/);
+    assert.strictEqual(bot.answeredCallbacks.length, 2);
+    assert.match(bot.answeredCallbacks[1].options.text, /refresh boom/);
+    assert.strictEqual(bot.editedReplyMarkups.length, 0);
+  });
+});
+
 describe("createTelegramBot entity authorization gate", () => {
   it("rejects an entity_id never offered in a light keyboard, calling no HA service", async () => {
     const lights = [makeLightEntity("kitchen", "off")];
