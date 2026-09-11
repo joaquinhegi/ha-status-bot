@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 
 import { createHomeAssistantClient } from "../src/haClient.js";
 
+// Mirrors HA_RETRY.SNAPSHOT_COOLDOWN_MS in src/haClient.js, which is module
+// private. Tests advance past it to reach a second snapshot attempt.
+const HA_RETRY_SNAPSHOT_COOLDOWN_MS = 5 * 60 * 1000;
+
 describe("createHomeAssistantClient", () => {
   let originalFetch;
 
@@ -289,6 +293,62 @@ describe("createHomeAssistantClient", () => {
 
       // The cooldown branch rejects without any new HA request.
       assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
+    });
+
+    it("keeps using the proxy path after an empty snapshot, and abandons it only when every proxy candidate raises a request error", async () => {
+      // Every proxy candidate answers 200 with an empty body: the endpoint is
+      // reachable, so the blank frame must be treated as transient.
+      mockFetchSequence([
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+      ]);
+
+      const now = makeControllableNow(1_700_000_000_000);
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        sleep: makeSleepSpy(),
+        now,
+      });
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const firstCallCount = globalThis.fetch.mock.calls.length;
+      now.advance(HA_RETRY_SNAPSHOT_COOLDOWN_MS + 1);
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const [retriedUrl] = globalThis.fetch.mock.calls[firstCallCount].arguments;
+      assert.match(retriedUrl, /\/camera_proxy\/camera\.entrada$/);
+    });
+
+    it("stops using the proxy path once every proxy candidate raises a request error", async () => {
+      // Both proxy candidates fail outright, then the service fallback runs.
+      mockFetchSequence([
+        { status: 502, body: { message: "proxy down" } },
+        { status: 502, body: { message: "proxy down" } },
+        { status: 200, body: [] },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+      ]);
+
+      const now = makeControllableNow(1_700_000_000_000);
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        sleep: makeSleepSpy(),
+        now,
+      });
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const firstCallCount = globalThis.fetch.mock.calls.length;
+      now.advance(HA_RETRY_SNAPSHOT_COOLDOWN_MS + 1);
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const [retriedUrl] = globalThis.fetch.mock.calls[firstCallCount].arguments;
+      assert.doesNotMatch(retriedUrl, /camera_proxy/);
     });
   });
 });

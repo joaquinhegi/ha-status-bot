@@ -94,6 +94,7 @@ export function createHomeAssistantClient({
   // that previously duplicated this loop.
   async function fetchFirstNonEmpty(candidates, label) {
     let lastError;
+    let sawEmptyResponse = false;
 
     for (const candidate of candidates) {
       try {
@@ -103,6 +104,7 @@ export function createHomeAssistantClient({
           return media;
         }
 
+        sawEmptyResponse = true;
         lastError = new Error(`Empty ${label} at ${candidate.path}`);
         logger.warn(`[HA API] Empty ${label} at ${candidate.path}, trying next candidate.`);
       } catch (error) {
@@ -111,7 +113,13 @@ export function createHomeAssistantClient({
       }
     }
 
-    throw lastError || new Error(`Could not fetch ${label}.`);
+    const failure = lastError || new Error(`Could not fetch ${label}.`);
+
+    // An endpoint that answered with an empty body is still reachable, so the
+    // caller must not disable it permanently. Only a chain where every
+    // candidate raised a request error counts as unreachable.
+    failure.everyCandidateFailed = !sawEmptyResponse;
+    throw failure;
   }
 
   // Calls `fn` up to `attempts` times, waiting `delayMs` between tries,
@@ -175,7 +183,13 @@ export function createHomeAssistantClient({
           `[HA API] Snapshot proxy unavailable for ${entityId}, falling back to service:`,
           error.message
         );
-        cameraProxyUnavailable.add(entityId);
+
+        // Skip the proxy on later calls only when every candidate raised a
+        // request error. An empty snapshot is treated as transient, so a
+        // camera that returns one blank frame keeps using the fast proxy path.
+        if (error.everyCandidateFailed) {
+          cameraProxyUnavailable.add(entityId);
+        }
       }
     }
 
