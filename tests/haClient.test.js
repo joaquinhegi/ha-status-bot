@@ -20,7 +20,30 @@ describe("createHomeAssistantClient", () => {
       status,
       json: async () => body,
       text: async () => JSON.stringify(body),
+      arrayBuffer: async () => Buffer.from(JSON.stringify(body)),
+      headers: {
+        get: () => "application/json",
+      },
     }));
+  }
+
+  function mockFetchSequence(responses) {
+    let index = 0;
+    globalThis.fetch = mock.fn(async () => {
+      const current = responses[index] || responses[responses.length - 1];
+      index += 1;
+
+      return {
+        ok: current.status >= 200 && current.status < 400,
+        status: current.status,
+        json: async () => current.body,
+        text: async () => JSON.stringify(current.body),
+        arrayBuffer: async () => Buffer.from(JSON.stringify(current.body)),
+        headers: {
+          get: () => current.contentType || "application/json",
+        },
+      };
+    });
   }
 
   describe("getStates", () => {
@@ -93,6 +116,123 @@ describe("createHomeAssistantClient", () => {
 
       const [, options] = globalThis.fetch.mock.calls[0].arguments;
       assert.deepStrictEqual(JSON.parse(options.body), {});
+    });
+  });
+
+  describe("camera methods", () => {
+    it("descarga snapshot de cámara como binario", async () => {
+      mockFetch(200, { image: true });
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+      });
+
+      const result = await ha.getCameraSnapshot("camera.entrada");
+
+      const [url, options] = globalThis.fetch.mock.calls[0].arguments;
+      assert.strictEqual(
+        url,
+        "http://supervisor/core/api/camera_proxy/camera.entrada"
+      );
+      assert.ok(Buffer.isBuffer(result.buffer));
+      assert.strictEqual(result.contentType, "application/json");
+      assert.strictEqual(options.headers.Authorization, "Bearer test-token");
+    });
+
+    it("usa fallback de snapshot cuando falla camera_proxy directo", async () => {
+      mockFetchSequence([
+        { status: 404, body: { message: "not found" } },
+        { status: 500, body: { message: "proxy failed" } },
+        { status: 200, body: [] },
+        { status: 200, body: { image: true } },
+      ]);
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+      });
+
+      const result = await ha.getCameraSnapshot("camera.entrada");
+      assert.ok(Buffer.isBuffer(result.buffer));
+
+      const [url1] = globalThis.fetch.mock.calls[0].arguments;
+      const [url2] = globalThis.fetch.mock.calls[1].arguments;
+      const [url3, options3] = globalThis.fetch.mock.calls[2].arguments;
+      const [url4] = globalThis.fetch.mock.calls[3].arguments;
+      assert.strictEqual(url1, "http://supervisor/core/api/camera_proxy/camera.entrada");
+      assert.strictEqual(url2, "http://supervisor/core/api/camera_proxy/camera.entrada");
+      assert.strictEqual(url3, "http://supervisor/core/api/services/camera/snapshot");
+      assert.strictEqual(options3.method, "POST");
+      assert.ok(
+        url4.startsWith("http://supervisor/core/media/local/ha_status_bot_snapshot_camera_entrada_")
+      );
+      assert.ok(url4.endsWith(".jpg"));
+    });
+
+    it("llama camera.record con duración y nombre de archivo", async () => {
+      mockFetch(200, []);
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+      });
+
+      const result = await ha.recordCameraClip("camera.patio", 30);
+
+      const [url, options] = globalThis.fetch.mock.calls[0].arguments;
+      assert.strictEqual(
+        url,
+        "http://supervisor/core/api/services/camera/record"
+      );
+      assert.strictEqual(options.method, "POST");
+
+      const payload = JSON.parse(options.body);
+      assert.strictEqual(payload.entity_id, "camera.patio");
+      assert.strictEqual(payload.duration, 30);
+      assert.ok(payload.filename.startsWith("/media/ha_status_bot_camera_patio_"));
+      assert.ok(payload.filename.endsWith(".mp4"));
+
+      assert.ok(result.internalPath.startsWith("/media/ha_status_bot_camera_patio_"));
+      assert.ok(result.publicPath.startsWith("/media/local/ha_status_bot_camera_patio_"));
+    });
+
+    it("descarga media desde la URL raíz de Home Assistant", async () => {
+      mockFetch(200, { video: true });
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+      });
+
+      await ha.getMediaFile("/media/local/clip.mp4");
+
+      const [url] = globalThis.fetch.mock.calls[0].arguments;
+      assert.strictEqual(url, "http://supervisor/core/media/local/clip.mp4");
+    });
+
+    it("prueba rutas alternativas cuando no encuentra media", async () => {
+      mockFetchSequence([
+        { status: 404, body: { message: "not found" } },
+        { status: 404, body: { message: "not found" } },
+        { status: 200, body: { video: true } },
+      ]);
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+      });
+
+      const result = await ha.getMediaFile("/media/local/clip.mp4");
+      assert.ok(Buffer.isBuffer(result.buffer));
+
+      const [u1] = globalThis.fetch.mock.calls[0].arguments;
+      const [u2] = globalThis.fetch.mock.calls[1].arguments;
+      const [u3] = globalThis.fetch.mock.calls[2].arguments;
+
+      assert.strictEqual(u1, "http://supervisor/core/media/local/clip.mp4");
+      assert.strictEqual(u2, "http://supervisor/core/media/clip.mp4");
+      assert.strictEqual(u3, "http://supervisor/core/api/media_proxy/media/clip.mp4");
     });
   });
 });

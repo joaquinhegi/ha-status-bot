@@ -3,8 +3,9 @@ import { createHomeAssistantClient } from "./haClient.js";
 import { createTelegramBot } from "./telegram.js";
 
 function loadOptions() {
-  console.log("Cargando opciones desde /data/options.json...");
-  const raw = fs.readFileSync("/data/options.json", "utf8");
+  const optionsPath = process.env.OPTIONS_PATH || "/data/options.json";
+  console.log(`Cargando opciones desde ${optionsPath}...`);
+  const raw = fs.readFileSync(optionsPath, "utf8");
   const options = JSON.parse(raw);
   console.log("Opciones cargadas correctamente.");
   return options;
@@ -43,7 +44,7 @@ async function main() {
 
   console.log("Conectando con Home Assistant API...");
   const ha = createHomeAssistantClient({
-    baseUrl: "http://supervisor/core/api",
+    baseUrl: process.env.HA_BASE_URL || "http://supervisor/core/api",
     token: supervisorToken,
   });
 

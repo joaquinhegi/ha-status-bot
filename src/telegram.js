@@ -9,6 +9,7 @@ import {
   formatTemperatures,
   getAllLights,
   getAllCovers,
+  getAllCameras,
 } from "./formatter.js";
 
 function isAllowed(chatId, allowedChatIds) {
@@ -38,6 +39,124 @@ async function safeReply(bot, chatId, text) {
   }
 }
 
+function buildCameraListKeyboard(cameras) {
+  return cameras.map((camera) => [
+    {
+      text: `📷 ${camera.name}`,
+      callback_data: `camera_pick:${camera.entity_id}`,
+    },
+  ]);
+}
+
+function cameraOptionsKeyboard(entityId) {
+  return [
+    [
+      {
+        text: "🖼️ Enviar imagen",
+        callback_data: `camera_img:${entityId}`,
+      },
+    ],
+    [
+      {
+        text: "🎥 Enviar video (30s)",
+        callback_data: `camera_vid30:${entityId}`,
+      },
+    ],
+    [
+      {
+        text: "⬅️ Volver a cámaras",
+        callback_data: "camera_list",
+      },
+    ],
+  ];
+}
+
+async function waitForMediaFile(ha, mediaPath, timeoutMs = 45000, intervalMs = 2500) {
+  const deadline = Date.now() + timeoutMs;
+  let lastError;
+
+  while (Date.now() < deadline) {
+    try {
+      const media = await ha.getMediaFile(mediaPath);
+
+      if (media?.buffer?.length > 0) {
+        return media;
+      }
+
+      lastError = new Error("Archivo multimedia vacío");
+    } catch (error) {
+      lastError = error;
+      if (!String(error.message || "").includes("API error 404")) {
+        throw error;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw lastError || new Error("No se pudo obtener el video a tiempo.");
+}
+
+function isExpiredCallbackError(error) {
+  const msg = String(error?.message || "").toLowerCase();
+  return msg.includes("query is too old") || msg.includes("query id is invalid") || msg.includes("response timeout expired");
+}
+
+async function safeAnswerCallback(bot, callbackId, text) {
+  try {
+    await bot.answerCallbackQuery(callbackId, { text });
+  } catch (error) {
+    if (isExpiredCallbackError(error)) {
+      console.warn(`[Telegram] Callback expirado al responder: ${text}`);
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function ensureNonEmptyBuffer(buffer, label) {
+  if (!buffer || !buffer.length) {
+    throw new Error(`${label} vacío`);
+  }
+}
+
+async function waitForSnapshot(ha, entityId) {
+  return ha.getCameraSnapshot(entityId);
+}
+
+async function sendPhotoWithFallback(bot, chatId, buffer, caption, fileName, contentType) {
+  ensureNonEmptyBuffer(buffer, "Imagen");
+
+  try {
+    await bot.sendPhoto(chatId, buffer, { caption }, { filename: fileName, contentType });
+  } catch (error) {
+    console.warn("[Telegram] sendPhoto falló, envío como documento:", error.message);
+    await bot.sendDocument(
+      chatId,
+      buffer,
+      { caption: `${caption} (enviado como archivo)` },
+      { filename: fileName, contentType }
+    );
+  }
+}
+
+async function sendVideoWithFallback(bot, chatId, buffer, caption, fileName, contentType) {
+  ensureNonEmptyBuffer(buffer, "Video");
+
+  try {
+    await bot.sendVideo(chatId, buffer, { caption }, { filename: fileName, contentType });
+  } catch (error) {
+    console.warn("[Telegram] sendVideo falló, envío como documento:", error.message);
+    await bot.sendDocument(
+      chatId,
+      buffer,
+      { caption: `${caption} (enviado como archivo)` },
+      { filename: fileName, contentType }
+    );
+  }
+}
+
 export function createTelegramBot({
   token,
   allowedChatIds,
@@ -45,7 +164,14 @@ export function createTelegramBot({
   ha,
 }) {
   const bot = new TelegramBot(token, {
-    polling: true,
+    polling: {
+      autoStart: false,
+    },
+  });
+
+  bot.deleteWebHook({ drop_pending_updates: true }).then(() => {
+    bot.startPolling();
+    console.log("[Telegram] Polling iniciado (webhook eliminado).");
   });
 
   async function handleCommand(msg, formatter) {
@@ -89,6 +215,7 @@ export function createTelegramBot({
         "/estado - Resumen general",
         "/luces - Luces (encender/apagar)",
         "/persianas - Persianas (abrir/cerrar)",
+        "/camaras - Selección de cámaras",
         "/sensores - Sensores activos",
         "/puertas - Puertas y ventanas abiertas",
         "/bateria - Baterías bajas",
@@ -106,6 +233,7 @@ export function createTelegramBot({
         "Comandos:",
         "/estado",
         "/luces",
+        "/camaras",
         "/sensores",
         "/puertas",
         "/bateria",
@@ -232,14 +360,45 @@ export function createTelegramBot({
     }
   });
 
+  bot.onText(/\/camaras/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`[Telegram] /camaras de chat_id=${chatId}`);
+
+    if (!isAllowed(chatId, allowedChatIds)) {
+      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
+      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      return;
+    }
+
+    try {
+      const states = await ha.getStates();
+      const cameras = getAllCameras(states);
+      console.log(`[Telegram] /camaras: ${cameras.length} cámaras encontradas`);
+
+      if (!cameras.length) {
+        await bot.sendMessage(chatId, "📷 No hay cámaras disponibles.");
+        return;
+      }
+
+      await bot.sendMessage(chatId, "📷 Seleccioná una cámara:", {
+        reply_markup: { inline_keyboard: buildCameraListKeyboard(cameras) },
+      });
+    } catch (error) {
+      console.error("[Telegram] Error procesando /camaras:", error);
+      await bot.sendMessage(chatId, `Error consultando Home Assistant: ${error.message}`);
+    }
+  });
+
   bot.on("callback_query", async (query) => {
     const chatId = query.message.chat.id;
-    const [action, entityId] = query.data.split(":");
-    console.log(`[Telegram] Callback: ${action} → ${entityId} de chat_id=${chatId}`);
+    const [action, ...payloadParts] = query.data.split(":");
+    const entityId = payloadParts.join(":");
+    const answer = (text) => safeAnswerCallback(bot, query.id, text);
+    console.log(`[Telegram] Callback: ${action} → ${entityId || "(sin payload)"} de chat_id=${chatId}`);
 
     if (!isAllowed(chatId, allowedChatIds)) {
       console.log(`[Telegram] Callback no autorizado: chat_id=${chatId}`);
-      await bot.answerCallbackQuery(query.id, { text: "No autorizado." });
+      await answer("No autorizado.");
       return;
     }
 
@@ -247,22 +406,120 @@ export function createTelegramBot({
       if (action === "light_on") {
         await ha.callService("light", "turn_on", { entity_id: entityId });
         console.log(`[Telegram] Luz encendida: ${entityId}`);
-        await bot.answerCallbackQuery(query.id, { text: "💡 Luz encendida" });
+        await answer("💡 Luz encendida");
       } else if (action === "light_off") {
         await ha.callService("light", "turn_off", { entity_id: entityId });
         console.log(`[Telegram] Luz apagada: ${entityId}`);
-        await bot.answerCallbackQuery(query.id, { text: "💡 Luz apagada" });
+        await answer("💡 Luz apagada");
       } else if (action === "cover_open") {
         await ha.callService("cover", "open_cover", { entity_id: entityId });
         console.log(`[Telegram] Persiana abierta: ${entityId}`);
-        await bot.answerCallbackQuery(query.id, { text: "🪟 Persiana abierta" });
+        await answer("🪟 Persiana abierta");
       } else if (action === "cover_close") {
         await ha.callService("cover", "close_cover", { entity_id: entityId });
         console.log(`[Telegram] Persiana cerrada: ${entityId}`);
-        await bot.answerCallbackQuery(query.id, { text: "🪟 Persiana cerrada" });
+        await answer("🪟 Persiana cerrada");
+      } else if (action === "camera_pick") {
+        const states = await ha.getStates();
+        const cameras = getAllCameras(states);
+        const selected = cameras.find((camera) => camera.entity_id === entityId);
+
+        if (!selected) {
+          await answer("Cámara no encontrada");
+          return;
+        }
+
+        await answer(`Cámara: ${selected.name}`);
+        await bot.editMessageText(`📷 ${selected.name}\n\nElegí una opción:`, {
+          chat_id: chatId,
+          message_id: query.message.message_id,
+          reply_markup: {
+            inline_keyboard: cameraOptionsKeyboard(entityId),
+          },
+        });
+        return;
+      } else if (action === "camera_list") {
+        const states = await ha.getStates();
+        const cameras = getAllCameras(states);
+
+        await answer("Lista de cámaras");
+
+        if (!cameras.length) {
+          await bot.editMessageText("📷 No hay cámaras disponibles.", {
+            chat_id: chatId,
+            message_id: query.message.message_id,
+          });
+          return;
+        }
+
+        await bot.editMessageText("📷 Seleccioná una cámara:", {
+          chat_id: chatId,
+          message_id: query.message.message_id,
+          reply_markup: {
+            inline_keyboard: buildCameraListKeyboard(cameras),
+          },
+        });
+        return;
+      } else if (action === "camera_img") {
+        await answer("Enviando imagen...");
+
+        const states = await ha.getStates();
+        const selected = getAllCameras(states).find((camera) => camera.entity_id === entityId);
+        const snapshot = await waitForSnapshot(ha, entityId);
+        await sendPhotoWithFallback(
+          bot,
+          chatId,
+          snapshot.buffer,
+          `📷 ${selected?.name || entityId}`,
+          `${entityId.replace(/\W+/g, "_")}.jpg`,
+          snapshot.contentType
+        );
+        return;
+      } else if (action === "camera_vid30") {
+        await answer("Grabando video (30s)...");
+
+        const states = await ha.getStates();
+        const selected = getAllCameras(states).find((camera) => camera.entity_id === entityId);
+
+        await bot.sendMessage(chatId, `🎥 Grabando 30 segundos de ${selected?.name || entityId}...`);
+
+        try {
+          const clip = await ha.recordCameraClip(entityId, 30);
+          const video = await waitForMediaFile(ha, clip.publicPath, 90000, 3000);
+
+          await sendVideoWithFallback(
+            bot,
+            chatId,
+            video.buffer,
+            `🎥 ${selected?.name || entityId} (30s)`,
+            `${entityId.replace(/\W+/g, "_")}_30s.mp4`,
+            video.contentType
+          );
+        } catch (recordError) {
+          if (recordError.path === "/services/camera/record" && recordError.status >= 500) {
+            await bot.sendMessage(
+              chatId,
+              "⚠️ Esta cámara no permite grabar video desde Home Assistant (camera.record). Te envío una imagen en su lugar."
+            );
+
+            const snapshot = await waitForSnapshot(ha, entityId);
+            await sendPhotoWithFallback(
+              bot,
+              chatId,
+              snapshot.buffer,
+              `📷 ${selected?.name || entityId}`,
+              `${entityId.replace(/\W+/g, "_")}.jpg`,
+              snapshot.contentType
+            );
+            return;
+          }
+
+          throw recordError;
+        }
+        return;
       } else {
         console.log(`[Telegram] Acción desconocida: ${action}`);
-        await bot.answerCallbackQuery(query.id, { text: "Acción desconocida" });
+        await answer("Acción desconocida");
         return;
       }
 
@@ -306,10 +563,13 @@ export function createTelegramBot({
         );
       }
     } catch (error) {
-      console.error(`[Telegram] Error procesando callback ${action} → ${entityId}:`, error);
-      await bot.answerCallbackQuery(query.id, {
-        text: `Error: ${error.message}`,
-      });
+      console.error(`[Telegram] Error procesando callback ${action} → ${entityId}: ${error.message}`);
+      try {
+        await bot.sendMessage(chatId, `⚠️ Error en ${action}: ${error.message}`);
+      } catch {
+        // Si falla enviar mensaje, al menos intentamos responder el callback.
+      }
+      await answer(`Error: ${error.message}`);
     }
   });
 

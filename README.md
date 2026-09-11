@@ -92,6 +92,7 @@ El proyecto sigue una arquitectura modular con separación de responsabilidades:
 | `/help` | Lista rápida de comandos. |
 | `/estado` | Resumen completo: luces, puertas, sensores, baterías y temperaturas. |
 | `/luces` | Lista de luces actualmente encendidas. |
+| `/camaras` | Lista cámaras y permite enviar imagen o video de 30 segundos. |
 | `/sensores` | Sensores binarios en estado activo. |
 | `/puertas` | Puertas y ventanas abiertas (filtra por `device_class`). |
 | `/bateria` | Sensores de batería por debajo del umbral configurado. |
