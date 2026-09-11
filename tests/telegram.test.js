@@ -502,6 +502,130 @@ describe("createTelegramBot callback_query unknown action", () => {
   });
 });
 
+describe("createTelegramBot entity authorization gate", () => {
+  it("rejects an entity_id never offered in a light keyboard, calling no HA service", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.not_offered" })
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("rejects a malformed entity_id shape, calling no HA service", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:../../etc" })
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("rejects a cover entity_id never offered, calling no HA service", async () => {
+    const covers = [makeCoverEntity("garage", "closed")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "cover_open:cover.not_offered" })
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("rejects a camera_pick entity_id never offered, without editing the message", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_pick:camera.not_offered" })
+    );
+
+    assert.strictEqual(bot.editedTexts.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("still accepts an offered entity_id after the gate is in place", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen" })
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+  });
+});
+
+describe("createTelegramBot /start and /help gating", () => {
+  it("denies /start for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/start", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+    assert.strictEqual(bot.sentMessages[0].text.split("\n").length, 1);
+  });
+
+  it("sends the full command list for /start when the chat_id is allowed", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/start", 42);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.ok(bot.sentMessages[0].text.split("\n").length > 1);
+  });
+
+  it("allows /start for every chat_id when the allow-list is empty", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/start", 7);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.ok(bot.sentMessages[0].text.split("\n").length > 1);
+  });
+
+  it("denies /help for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/help", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+    assert.strictEqual(bot.sentMessages[0].text.split("\n").length, 1);
+  });
+
+  it("sends the command list for /help when the chat_id is allowed", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/help", 42);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.ok(bot.sentMessages[0].text.split("\n").length > 1);
+  });
+
+  it("keeps /chatid reachable for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/chatid", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+});
+
 describe("user-facing copy", () => {
   it("denies an unauthorized chat with guidance text including its chat_id", async () => {
     const { bot } = setup({ states: [], allowedChatIds: ["1"] });
@@ -509,5 +633,13 @@ describe("user-facing copy", () => {
     await bot.emitText("/estado", 999);
 
     assert.match(bot.sentMessages[0].text, /999/);
+  });
+
+  it("/chatid replies without an authorization error for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["1"] });
+
+    await bot.emitText("/chatid", 999);
+
+    assert.doesNotMatch(bot.sentMessages[0].text, /[Nn]o autorizado/);
   });
 });

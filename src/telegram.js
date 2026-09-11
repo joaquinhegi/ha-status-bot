@@ -157,6 +157,43 @@ async function sendVideoWithFallback(bot, chatId, buffer, caption, fileName, con
   }
 }
 
+// Shape-only check: syntactically valid entity_id, not an authorization decision.
+const ENTITY_ID_SHAPE = /^[a-z_]+\.[a-z0-9_]+$/;
+
+// Maps each privileged callback action to the same formatter selector used to
+// build the keyboard that offered it. An action absent from this map (e.g.
+// camera_list, or an unrecognized action) carries no entity to authorize.
+const OFFERED_ENTITY_SELECTORS = {
+  light_on: getAllLights,
+  light_off: getAllLights,
+  cover_open: getAllCovers,
+  cover_close: getAllCovers,
+  camera_pick: getAllCameras,
+  camera_img: getAllCameras,
+  camera_vid30: getAllCameras,
+};
+
+// Authorizes a callback_query entity_id against the domain's currently valid
+// entities (fetched fresh, not cached per-chat). A shape-only regex check
+// would still let a forged callback drive any entity_id of the right domain;
+// membership against the selector output is the actual authorization
+// boundary. Returns `requiresEntity: false` for actions with no entity to
+// authorize (e.g. camera_list, unknown actions).
+function resolveOfferedEntity(action, entityId, states) {
+  const selector = OFFERED_ENTITY_SELECTORS[action];
+
+  if (!selector) {
+    return { requiresEntity: false, offered: null };
+  }
+
+  if (!ENTITY_ID_SHAPE.test(entityId || "")) {
+    return { requiresEntity: true, offered: null };
+  }
+
+  const offered = selector(states).find((candidate) => candidate.entity_id === entityId) || null;
+  return { requiresEntity: true, offered };
+}
+
 export function createTelegramBot({
   token,
   allowedChatIds,
@@ -209,6 +246,12 @@ export function createTelegramBot({
     const chatId = msg.chat.id;
     console.log(`[Telegram] /start de chat_id=${chatId}`);
 
+    if (!isAllowed(chatId, allowedChatIds)) {
+      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
+      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      return;
+    }
+
     await bot.sendMessage(
       chatId,
       [
@@ -229,9 +272,17 @@ export function createTelegramBot({
   });
 
   bot.onText(/\/help/, async (msg) => {
-    console.log(`[Telegram] /help de chat_id=${msg.chat.id}`);
+    const chatId = msg.chat.id;
+    console.log(`[Telegram] /help de chat_id=${chatId}`);
+
+    if (!isAllowed(chatId, allowedChatIds)) {
+      console.log(`[Telegram] Chat no autorizado: ${chatId}`);
+      await bot.sendMessage(chatId, `No autorizado. Tu chat_id es: ${chatId}`);
+      return;
+    }
+
     await bot.sendMessage(
-      msg.chat.id,
+      chatId,
       [
         "Comandos:",
         "/estado",
@@ -246,6 +297,10 @@ export function createTelegramBot({
     );
   });
 
+  // /chatid intentionally stays ungated: an unauthorized user must be able to
+  // discover their own chat_id in order to request access. Do not add an
+  // isAllowed(...) check here — see the bot-authorization spec, requirement
+  // "/chatid Stays Ungated By Design".
   bot.onText(/\/chatid/, async (msg) => {
     console.log(`[Telegram] /chatid de chat_id=${msg.chat.id}`);
     await bot.sendMessage(msg.chat.id, `Tu chat_id es: ${msg.chat.id}`);
@@ -406,6 +461,15 @@ export function createTelegramBot({
     }
 
     try {
+      const states = await ha.getStates();
+      const gate = resolveOfferedEntity(action, entityId, states);
+
+      if (gate.requiresEntity && !gate.offered) {
+        console.warn(`[Telegram] Entidad no ofrecida rechazada: ${action} -> ${entityId || "(sin payload)"}`);
+        await answer("Entidad no autorizada.");
+        return;
+      }
+
       if (action === "light_on") {
         await ha.callService("light", "turn_on", { entity_id: entityId });
         console.log(`[Telegram] Luz encendida: ${entityId}`);
@@ -423,14 +487,7 @@ export function createTelegramBot({
         console.log(`[Telegram] Persiana cerrada: ${entityId}`);
         await answer("🪟 Persiana cerrada");
       } else if (action === "camera_pick") {
-        const states = await ha.getStates();
-        const cameras = getAllCameras(states);
-        const selected = cameras.find((camera) => camera.entity_id === entityId);
-
-        if (!selected) {
-          await answer("Cámara no encontrada");
-          return;
-        }
+        const selected = gate.offered;
 
         await answer(`Cámara: ${selected.name}`);
         await bot.editMessageText(`📷 ${selected.name}\n\nElegí una opción:`, {
@@ -442,7 +499,6 @@ export function createTelegramBot({
         });
         return;
       } else if (action === "camera_list") {
-        const states = await ha.getStates();
         const cameras = getAllCameras(states);
 
         await answer("Lista de cámaras");
@@ -466,8 +522,7 @@ export function createTelegramBot({
       } else if (action === "camera_img") {
         await answer("Enviando imagen...");
 
-        const states = await ha.getStates();
-        const selected = getAllCameras(states).find((camera) => camera.entity_id === entityId);
+        const selected = gate.offered;
         const snapshot = await waitForSnapshot(ha, entityId);
         await sendPhotoWithFallback(
           bot,
@@ -481,8 +536,7 @@ export function createTelegramBot({
       } else if (action === "camera_vid30") {
         await answer("Grabando video (30s)...");
 
-        const states = await ha.getStates();
-        const selected = getAllCameras(states).find((camera) => camera.entity_id === entityId);
+        const selected = gate.offered;
 
         await bot.sendMessage(chatId, `🎥 Grabando 30 segundos de ${selected?.name || entityId}...`);
 
@@ -526,11 +580,12 @@ export function createTelegramBot({
         return;
       }
 
-      // Refresh the inline keyboard after action
-      const states = await ha.getStates();
+      // Refresh the inline keyboard after action (a fresh fetch is required
+      // here: the action above just changed the entity's state).
+      const refreshedStates = await ha.getStates();
 
       if (action.startsWith("light_")) {
-        const lights = getAllLights(states);
+        const lights = getAllLights(refreshedStates);
         const keyboard = lights.map((light) => {
           const icon = light.state === "on" ? "🟡" : "⚫";
           const actionLabel = light.state === "on" ? "Apagar" : "Encender";
@@ -547,7 +602,7 @@ export function createTelegramBot({
           { chat_id: chatId, message_id: query.message.message_id }
         );
       } else if (action.startsWith("cover_")) {
-        const covers = getAllCovers(states);
+        const covers = getAllCovers(refreshedStates);
         const keyboard = covers.map((cover) => {
           const isOpen = cover.state === "open";
           const icon = isOpen ? "🟢" : "🔴";
@@ -577,7 +632,7 @@ export function createTelegramBot({
   });
 
   bot.on("polling_error", (error) => {
-    console.error("[Telegram] Polling error:", error.message);
+    console.error("[Telegram] Polling error:", error.message, error.code);
   });
 
   logger.log("Bot de Telegram iniciado.");

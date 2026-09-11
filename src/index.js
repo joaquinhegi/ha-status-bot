@@ -93,11 +93,67 @@ export function loadConfig({ env = process.env, readFile = defaultReadFile } = {
   });
 }
 
+// Registers process-level lifecycle handlers. The Supervisor sends SIGTERM on
+// every add-on stop, restart, and update; long polling holds an open HTTP
+// request, so an idempotent graceful stop is required.
+export function installProcessHandlers({
+  bot,
+  processRef = process,
+  exit = process.exit,
+  logger = console,
+  timeoutMs = 10_000,
+}) {
+  let shuttingDown = false;
+
+  async function shutdown(signal) {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    logger.log(`Received ${signal}, shutting down gracefully...`);
+
+    const forceExitTimer = setTimeout(() => {
+      logger.error(`Graceful shutdown timed out after ${timeoutMs}ms, forcing exit.`);
+      exit(1);
+    }, timeoutMs);
+    forceExitTimer.unref?.();
+
+    try {
+      await bot.stopPolling({ cancel: true });
+      clearTimeout(forceExitTimer);
+      exit(0);
+    } catch (error) {
+      clearTimeout(forceExitTimer);
+      logger.error("Error while stopping the bot:", error);
+      exit(1);
+    }
+  }
+
+  processRef.on("SIGTERM", () => shutdown("SIGTERM"));
+  processRef.on("SIGINT", () => shutdown("SIGINT"));
+
+  // A transient Home Assistant error (e.g. a 502) surfaces here as a rejected
+  // promise somewhere in the polling/handler chain. It must not take down the
+  // add-on: log it and keep running.
+  processRef.on("unhandledRejection", (reason) => {
+    logger.error("Unhandled promise rejection:", reason);
+  });
+
+  processRef.on("uncaughtException", (error) => {
+    logger.error("Uncaught exception:", error);
+    exit(1);
+  });
+}
+
 export async function bootstrap({
   config,
   createHaClient = createHomeAssistantClient,
   startBot = createTelegramBot,
   logger = console,
+  processRef = process,
+  exit = process.exit,
+  shutdownTimeoutMs = 10_000,
 } = {}) {
   logger.log("Connecting to Home Assistant API...");
   const ha = createHaClient({
@@ -111,6 +167,8 @@ export async function bootstrap({
     lowBatteryThreshold: config.thresholds.lowBattery,
     ha,
   });
+
+  installProcessHandlers({ bot, processRef, exit, logger, timeoutMs: shutdownTimeoutMs });
 
   logger.log("HA Status Bot started successfully.");
   return bot;

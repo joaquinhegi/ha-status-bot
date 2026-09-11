@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 
-import { HA_DEFAULT_BASE_URL, bootstrap, loadConfig } from "../src/index.js";
+import { HA_DEFAULT_BASE_URL, bootstrap, installProcessHandlers, loadConfig } from "../src/index.js";
 
 function makeOptions(overrides = {}) {
   return {
@@ -197,6 +198,8 @@ describe("bootstrap", () => {
       createHaClient,
       startBot,
       logger: noopLogger,
+      processRef: new EventEmitter(),
+      exit: () => {},
     });
 
     assert.strictEqual(receivedArgs.baseUrl, "http://supervisor/core/api");
@@ -217,6 +220,8 @@ describe("bootstrap", () => {
       createHaClient,
       startBot,
       logger: noopLogger,
+      processRef: new EventEmitter(),
+      exit: () => {},
     });
 
     assert.strictEqual(receivedArgs.token, "test-token");
@@ -232,8 +237,100 @@ describe("bootstrap", () => {
       createHaClient: () => ({}),
       startBot: () => bot,
       logger: noopLogger,
+      processRef: new EventEmitter(),
+      exit: () => {},
     });
 
     assert.strictEqual(result, bot);
+  });
+});
+
+describe("installProcessHandlers", () => {
+  function fakeBot() {
+    const calls = { stopPolling: 0 };
+    return {
+      calls,
+      async stopPolling() {
+        calls.stopPolling += 1;
+      },
+    };
+  }
+
+  function fakeExit() {
+    const calls = [];
+    const exit = (code) => calls.push(code);
+    exit.calls = calls;
+    return exit;
+  }
+
+  async function flushMicrotasks() {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  it("stops polling once and exits 0 on SIGTERM", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("SIGTERM");
+    await flushMicrotasks();
+
+    assert.strictEqual(bot.calls.stopPolling, 1);
+    assert.deepStrictEqual(exit.calls, [0]);
+  });
+
+  it("ignores a repeated SIGTERM once shutdown is already in progress", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("SIGTERM");
+    processRef.emit("SIGTERM");
+    await flushMicrotasks();
+
+    assert.strictEqual(bot.calls.stopPolling, 1);
+    assert.deepStrictEqual(exit.calls, [0]);
+  });
+
+  it("stops polling once and exits 0 on SIGINT", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("SIGINT");
+    await flushMicrotasks();
+
+    assert.strictEqual(bot.calls.stopPolling, 1);
+    assert.deepStrictEqual(exit.calls, [0]);
+  });
+
+  it("logs an unhandledRejection without exiting", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+    const logged = [];
+    const logger = { log() {}, error: (...args) => logged.push(args) };
+
+    installProcessHandlers({ bot, processRef, exit, logger });
+    processRef.emit("unhandledRejection", new Error("boom"));
+    await flushMicrotasks();
+
+    assert.strictEqual(exit.calls.length, 0);
+    assert.strictEqual(logged.length, 1);
+  });
+
+  it("exits non-zero on an uncaughtException", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("uncaughtException", new Error("fatal"));
+    await flushMicrotasks();
+
+    assert.deepStrictEqual(exit.calls, [1]);
   });
 });
