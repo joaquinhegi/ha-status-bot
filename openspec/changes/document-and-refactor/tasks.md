@@ -72,64 +72,77 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
 
 ## Phase 1: Secrets and Config (Unit 1a — PR 1, alone)
 
-- [ ] 1.1 In `src/index.js:39`, delete the hardcoded JWT literal and its trailing comment; restore
+- [x] 1.1 In `src/index.js:39`, delete the hardcoded JWT literal and its trailing comment; restore
       `const supervisorToken = process.env.SUPERVISOR_TOKEN;`. Do not reproduce the removed literal
-      anywhere (commit message, comment, or artifact).
-- [ ] 1.2 In `src/index.js:45,49`, delete the hardcoded `"http://homeassistant.local:8123/api"` and
+      anywhere (commit message, comment, or artifact). — DONE at baseline commit `50b2442`, verified.
+- [x] 1.2 In `src/index.js:45,49`, delete the hardcoded `"http://homeassistant.local:8123/api"` and
       uncomment/restore `baseUrl: "http://supervisor/core/api"` at the `createHomeAssistantClient` call.
-- [ ] 1.3 Add `.vscode/` and `.DS_Store` to `.gitignore` (currently untracked, not ignored).
-- [ ] 1.4 Verify: `node --test` passes (no test currently asserts on config, so this is a smoke check
+      — DONE at baseline; `HA_BASE_URL` env override added on top (`process.env.HA_BASE_URL ||
+      "http://supervisor/core/api"`), verified.
+- [x] 1.3 Add `.vscode/` and `.DS_Store` to `.gitignore` (currently untracked, not ignored). — DONE at
+      baseline commit `50b2442`, verified present.
+- [x] 1.4 Verify: `node --test` passes (no test currently asserts on config, so this is a smoke check
       only — real config tests land in unit 1b). Run `git diff --stat` and confirm ≤10 changed lines.
-- [ ] 1.5 Commit as its own work unit per `work-unit-commits`; message states the outcome (secret
-      removed, proxy restored), not the file list.
+      — Verified: baseline `git diff 820c088 --stat` is empty (already committed), 59/59 tests passing.
+- [x] 1.5 Commit as its own work unit per `work-unit-commits`; message states the outcome (secret
+      removed, proxy restored), not the file list. — DONE at baseline commit `50b2442`; branch
+      `fix/secrets-and-config` created pointing at this commit as the PR-1 base for the stack.
 
 ## Phase 2: loadConfig + bootstrap + entrypoint guard (Unit 1b — PR 2)
 
-- [ ] 2.1 In `src/index.js`, write `export const HA_DEFAULT_BASE_URL = "http://supervisor/core/api";`
+- [x] 2.1 In `src/index.js`, write `export const HA_DEFAULT_BASE_URL = "http://supervisor/core/api";`
       as a module-level named constant, replacing the inline string from 1.2.
-- [ ] 2.2 In `src/index.js`, write `export function loadConfig({ env = process.env, readFile } = {})`
+- [x] 2.2 In `src/index.js`, write `export function loadConfig({ env = process.env, readFile } = {})`
       absorbing `loadOptions` (current `:5-12`) and `parseAllowedChatIds` (current `:14`); return a
       deep-frozen `{ telegram: {token, allowedChatIds}, homeAssistant: {baseUrl, token}, thresholds:
       {lowBattery} }`. HA token via a private `requireEnv(env, "SUPERVISOR_TOKEN")` throwing a message
       naming `homeassistant_api: true`. Walk one validation table once; every option name that fails
       validation is named in the thrown error.
-- [ ] 2.3 In `src/index.js`, replace `main()` with `export async function bootstrap({ config,
+- [x] 2.3 In `src/index.js`, replace `main()` with `export async function bootstrap({ config,
       createHaClient = createHomeAssistantClient, startBot = createTelegramBot, logger = console } =
       {})`, using injected collaborators instead of importing directly by name at call sites.
-- [ ] 2.4 In `src/index.js:63`, replace `main().catch(...)` with an entrypoint guard:
+- [x] 2.4 In `src/index.js:63`, replace `main().catch(...)` with an entrypoint guard:
       `if (pathToFileURL(process.argv[1]).href === import.meta.url) { bootstrap({ config: loadConfig()
       }).catch((error) => { logger.error(...); process.exit(1); }); }`.
-- [ ] 2.5 Translate the remaining Spanish `console.log` strings inside `loadConfig`/`bootstrap`
+- [x] 2.5 Translate the remaining Spanish `console.log` strings inside `loadConfig`/`bootstrap`
       (current `:7,10,32,33,36,42,60,64`) to English.
-- [ ] 2.6 RED: rewrite `tests/index.test.js` to `import { loadConfig } from "../src/index.js"` (delete
+- [x] 2.6 RED: rewrite `tests/index.test.js` to `import { loadConfig } from "../src/index.js"` (delete
       the inline `parseAllowedChatIds` copy at current `:4-14`); add failing cases first: env sourcing,
       Supervisor default URL, missing `SUPERVISOR_TOKEN` throws, chat-id parsing, threshold
       coercion/bounds, invalid option name in the thrown error.
-- [ ] 2.7 GREEN: confirm `node --test tests/index.test.js` passes against the real `loadConfig`.
-- [ ] 2.8 Verify: `node --test` full suite green. Run `git diff --stat`; confirm ≈220 changed lines
-      before opening PR 2.
+- [x] 2.7 GREEN: confirm `node --test tests/index.test.js` passes against the real `loadConfig`.
+- [x] 2.8 Verify: `node --test` full suite green. Run `git diff --stat`; confirm ≈220 changed lines
+      before opening PR 2. — MEASURED 380 changed lines (310+/70-), over the ~220 estimate but under the
+      400 budget. Committed on `refactor/load-config-bootstrap` at `9e0288b`. 69/69 tests passing.
 
 ## Phase 3: Testability Seam + Real telegram.js Coverage, Part 1 (Unit 2a — PR 3, HIGH risk)
 
-- [ ] 3.1 In `src/telegram.js:160-166`, add optional `createBot = (token) => new TelegramBot(token, {
+- [x] 3.1 In `src/telegram.js:160-166`, add optional `createBot = (token) => new TelegramBot(token, {
       polling: { autoStart: false } })` and `logger = console` parameters to `createTelegramBot`;
       replace the direct `new TelegramBot(token, ...)` call with `createBot(token)`. No new exports.
-- [ ] 3.2 Create `tests/helpers/fakeTelegramBot.js` (new TEST file, outside `*.test.js` glob): a
+- [x] 3.2 Create `tests/helpers/fakeTelegramBot.js` (new TEST file, outside `*.test.js` glob): a
       recording double implementing `onText`, `on`, `sendMessage`, `sendPhoto`, `sendVideo`,
       `sendDocument`, `editMessageText`, `editMessageReplyMarkup`, `answerCallbackQuery`, a resolved
       `deleteWebHook()`, and a no-op synchronous `startPolling()`. Registrations recorded synchronously.
-- [ ] 3.3 RED: rewrite `tests/telegram.test.js` — delete the re-implemented `isAllowed` (current
+- [x] 3.3 RED: rewrite `tests/telegram.test.js` — delete the re-implemented `isAllowed` (current
       `:10-15`) and `splitText` (current `:39-48`); `import { createTelegramBot } from
       "../src/telegram.js"`; drive it with `createBot: () => new FakeTelegramBot()`. Write failing
-      cases for: allow-list allow/deny, `/status` `/sensors` `/doors` `/battery` `/temperature` simple
-      commands, and chunking over 3900 chars — all via the real module.
-- [ ] 3.4 Structure assertions only in this unit: assert `sendMessage` was called for the right
+      cases for: allow-list allow/deny, `/estado` `/sensores` `/puertas` `/bateria` `/temp` simple
+      commands (current Spanish command triggers — renaming is unit 5b, out of scope here), and
+      chunking over 3900 chars — all via the real module.
+- [x] 3.4 Structure assertions only in this unit: assert `sendMessage` was called for the right
       `chat_id` and that the correct number of chunks were sent — never assert on the Spanish copy the
       commands currently produce. Copy-exact assertions are reserved for unit 5b's
       `describe("user-facing copy")` block, added later.
-- [ ] 3.5 GREEN: `node --test tests/telegram.test.js` passes against real `createTelegramBot`.
+- [x] 3.5 GREEN: `node --test tests/telegram.test.js` passes against real `createTelegramBot`
+      (13/13 new tests green; 74/74 full suite green).
 - [ ] 3.6 Verify: `git diff --stat`; if this unit measures over 400, stop and report the measured
-      number back to the user before opening PR 3 (no pre-approved fallback split exists for 2a).
+      number back to the user before opening PR 3 (no pre-approved fallback split exists for 2a). —
+      **TRIGGERED**: measured 423 changed lines (362+/61-: `src/telegram.js` 10+/7-,
+      `tests/helpers/fakeTelegramBot.js` 102+/0- new file, `tests/telegram.test.js` 250+/54-). Over the
+      400 budget by 23 lines. Per the design, there is no pre-approved fallback split for 2a. Work is
+      implemented and green but left UNCOMMITTED on branch `test/telegram-seam-and-coverage`, pending a
+      user/maintainer decision (accept `size:exception`, or define a new split for this unit).
 
 ## Phase 4: Real telegram.js Coverage, Part 2 (Unit 2b — PR 4, test-only)
 
