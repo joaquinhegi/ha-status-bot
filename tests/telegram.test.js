@@ -738,6 +738,36 @@ describe("createTelegramBot entity authorization gate", () => {
   });
 });
 
+describe("createTelegramBot retired Spanish commands", () => {
+  // The 2.0.0 rename kept no Spanish aliases. There is also no catch-all
+  // message handler, so a retired command produces no reply at all rather
+  // than an unknown-command message. Pinning that here keeps a later change
+  // from quietly reviving an alias, and documents the silence as deliberate.
+  const RETIRED_COMMANDS = [
+    "/estado",
+    "/luces",
+    "/sensores",
+    "/puertas",
+    "/bateria",
+    "/temp",
+    "/persianas",
+    "/camaras",
+  ];
+
+  for (const command of RETIRED_COMMANDS) {
+    it(`ignores ${command} entirely, calling no HA service and sending no reply`, async () => {
+      const lights = [makeLightEntity("kitchen")];
+      const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+      await bot.emitText(command, 42);
+
+      assert.strictEqual(bot.sentMessages.length, 0);
+      assert.strictEqual(ha.calls.getStates, 0);
+      assert.strictEqual(ha.calls.callService.length, 0);
+    });
+  }
+});
+
 describe("createTelegramBot /start and /help gating", () => {
   it("denies /start for a chat_id absent from the allow-list", async () => {
     const { bot } = setup({ states: [], allowedChatIds: ["42"] });

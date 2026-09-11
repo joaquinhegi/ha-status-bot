@@ -1,56 +1,59 @@
 ```yaml
 schema: gentle-ai.verify-result/v1
-evidence_revision: sha256:47edcb9ad00462f81ee6fd47007a7e028a5a5d16ebb1b0c1d6f46a398d40b41a
+evidence_revision: sha256:b38ca34a053e362d12b14fb4e0f679a2a57aef6786b4337ed92a47099f1d0c16
 verdict: fail
-blockers: 3
-critical_findings: 3
-requirements: 26/28
-scenarios: 28/33
+blockers: 1
+critical_findings: 1
+requirements: 28/28
+scenarios: 32/33
 test_command: node --test
 test_exit_code: 0
-test_output_hash: sha256:00e0fc4abf1596eeba1f00e0c0e495270fbd80f81db51e6cb512b7e9202525bb
+test_output_hash: sha256:aaa818b9defbbb449295737603d25f7f6261b8dd36fc4877f74665d549dbb673
 build_command: npx biome check .
 build_exit_code: 0
-build_output_hash: sha256:b5d99a241ca2445f6addfcb6926bd3eabf8051706ae73eba3427b61233eca97d
+build_output_hash: sha256:f2b022b84d56165660c82d4f48ade310bc2cd092bbf45aeb7af7df48da344058
 ```
 
-## Verification Report
+## Verification Report (re-verification after corrective slice)
 
 **Change**: document-and-refactor
 **Repository**: ha-status-bot
-**Branch / HEAD**: `test/telegram-seam-and-coverage` @ `622fd04` (clean working tree)
-**Mode**: Standard (Strict TDD not active at verification time)
+**Branch / HEAD**: `test/telegram-seam-and-coverage` @ `799a199` (clean working tree, unchanged by this run)
+**Mode**: Standard (Strict TDD not active)
 **Artifact store**: hybrid (OpenSpec files + Engram)
+**Supersedes**: the FAIL report at Engram #77 / `openspec/changes/document-and-refactor/verify-report.md` (HEAD `622fd04`)
+
+This run re-checks every finding from the prior FAIL report, re-checks every capability that
+previously passed, and treats the corrective slice's "behavior-neutral" claim as unproven until
+independently demonstrated.
 
 ### Completeness
 
 | Metric | Value |
 |--------|-------|
-| Tasks total | 75 |
-| Tasks complete | 74 |
-| Tasks incomplete | 1 (`3.6`, `openspec/changes/document-and-refactor/tasks.md:139`) |
+| Tasks total | 80 |
+| Tasks complete | 80 |
+| Tasks incomplete | 0 |
 | Spec requirements | 28 across 8 capabilities |
 | Spec scenarios | 33 across 8 capabilities |
 
-The tasks artifact (Engram #73) and apply-progress (Engram #74) both assert every task is
-complete. That is not accurate: task `3.6` is still `- [ ]`. Its body records that the check
-*was* performed (423 measured lines) and the owner-approved `size:exception` resolved it, so
-this is a bookkeeping omission, not unfinished work.
+Task `3.6` (`openspec/changes/document-and-refactor/tasks.md:139`) is now `- [x]`. `rg -c '^\s*- \[ \]'`
+returns no unchecked task. The tasks artifact and apply-progress no longer contradict the file.
 
 ### Build & Tests Execution
 
-**Tests**: PASSED — 114 passed / 0 failed / 0 skipped
+**Tests**: PASSED — 129 passed / 0 failed / 0 skipped
 
 ```text
 $ node --test
-ℹ tests 114
-ℹ suites 31
-ℹ pass 114
+ℹ tests 129
+ℹ suites 35
+ℹ pass 129
 ℹ fail 0
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 292.09175
+ℹ duration_ms 303.963291
 (exit code 0)
 ```
 
@@ -58,268 +61,356 @@ $ node --test
 
 ```text
 $ npx biome check .
-Checked 11 files in 13ms. No fixes applied.
-(exit code 0)
-
-$ npm run lint
-Checked 11 files in 31ms. No fixes applied.
+Checked 12 files in 40ms. No fixes applied.
 (exit code 0)
 
 $ npm run check:lang
+> node scripts/check-lang.js
 check:lang passed — no Spanish characters found under src/**.
 (exit code 0)
 ```
 
-**Coverage** (`node --test --experimental-test-coverage`): 88.35% lines / 89.89% branches /
-90.91% functions overall. No project threshold is configured.
+**Coverage** (`node --test --experimental-test-coverage`): 94.77% lines / 90.75% branches /
+93.10% functions overall (was 88.35 / 89.89 / 90.91). No project threshold is configured.
 
 | File | Line % | Branch % | Funcs % | Uncovered lines |
 |---|---|---|---|---|
 | `src/formatter.js` | 100.00 | 94.92 | 100.00 | — |
-| `src/haClient.js` | 98.13 | 84.00 | 81.25 | 7-9, 138-139 |
+| `src/haClient.js` | 98.17 | 84.00 | 81.25 | 12-14, 143-144 |
 | `src/index.js` | 92.00 | 92.68 | 86.96 | 8-10, 110-111, 120-123, 171-175 |
-| `src/telegram.js` | 77.83 | 87.96 | 82.05 | 113-124, 128-135, 141-147, 152-153, 235-238, 341-368, 392-419, 423-448, 461-464, 512-517, 581-583, 609-618, 622 |
+| `src/telegram.js` | 91.74 | 90.24 | 90.24 | 158-169, 173-180, 186-192, 197-198, 280-283, 526-531, 595-597, 624-633, 637 |
+
+`src/telegram.js` rose from 77.83% to 91.74% lines. The four regions named in the prior report's
+WARNING 1 and 2 (`341-368`, `392-419`, `423-448`, `461-464` at that revision) are gone from the
+uncovered list.
+
+### Per-finding resolution against the prior FAIL report (Engram #77)
+
+| # | Prior finding | Status | Evidence |
+|---|---|---|---|
+| CRITICAL 1 | Shared fetch+keyboard+error helper does not exist | **RESOLVED** | `fetchEntityKeyboard` (`src/telegram.js:86-90`) invoked by all four call sites; `replyWithEntityKeyboard` (`:100-122`) wraps it for the three commands. Zero independent repetition remains. Judgment detailed below |
+| CRITICAL 2 | Camera clip duration has no named constant | **RESOLVED** | `CAMERA_CLIP_DURATION_SECONDS` declared once at `src/haClient.js:4`. `rg '\b30\b\|vid30\|30s\|30 seconds' src/` returns that declaration and nothing else |
+| CRITICAL 3 | Default base URL test is tautological; mutant M8 survived | **RESOLVED** | `tests/index.test.js:55-56` now pins the literal on both sides. Mutation re-run: **128 passed / 1 failed** (was 114/0). Mutant killed |
+| WARNING 1 | `callback_query` allow-list denial branch uncovered | **RESOLVED** | `tests/telegram.test.js:639-666`. Mutants M12 (gate removed), M13 (gate inverted), M14 (denial copy changed) all killed |
+| WARNING 2 | `/lights`, `/covers`, `/cameras` handlers never invoked | **RESOLVED** | `tests/telegram.test.js:235-413`, 12 tests. All 11 registered commands are now driven by tests. Mutants M15, M18 killed |
+| WARNING 3 | No test asserts an old Spanish command is ignored | **STILL OPEN — now the sole blocker** | Unchanged since the prior report: no committed test drives an old command. Re-classified as CRITICAL 1 below, not because it worsened, but because it is now the only unmet item and the prior report already recorded this scenario as UNTESTED |
+| WARNING 4 | Biome scope narrower than the design's repo-wide claim | **RESOLVED** | `biome.json:10` is now `["src/**", "tests/**", "scripts/**", "*.json", "*.js"]`. Probe: a `process.env` read added under `scripts/` and at the repository root both raise `lint/style/noProcessEnv`. All 10 tracked `.js` files are in scope |
+| WARNING 5 | README overstates the Biome `process.env` guard | **DOWNGRADED to SUGGESTION** | `README.md:233-235` is now accurate for every JS file that exists in the repository. It remains technically overstated only for a hypothetical new top-level directory (probe: `tools/probe.js` is not checked) |
+| WARNING 6 | Task `3.6` unchecked while artifacts claim completion | **RESOLVED** | 80/80 tasks checked, 0 unchecked |
+| WARNING 7 | CI uses `npm install`, Dockerfile uses `npm ci` | **OPEN** | `.github/workflows/tests.yml:20` still `npm install`. Not a spec violation (the requirement names only the Dockerfile) |
+| SUGGESTION 1 | `loadConfig()` evaluated outside the `.catch` | **OPEN** | `src/index.js:171` unchanged |
+| SUGGESTION 2 | `retryForNonEmpty` sleeps after its final attempt | **OPEN** | `src/haClient.js:136-149` unchanged |
+| SUGGESTION 3 | Untracked `debug-options.json` holds a bot token | **OPEN** | Still untracked and git-ignored; rotation still recommended |
+| SUGGESTION 4 | Other uncovered `src/telegram.js` branches | **PARTIALLY OPEN** | Still uncovered: `158-169`, `173-180`, `186-192`, `197-198`, `526-531`, `595-597`, `624-633` |
+| SUGGESTION 5 | `scripts/check-lang.js` outside the Biome file set | **RESOLVED** | Now checked; `npx biome check .` covers 12 files including it |
+
+### CRITICAL 1 — judgment on the deliberate non-unification
+
+**Verdict: the requirement is SATISFIED. This is not a deviation requiring owner approval.**
+
+The requirement (`specs/code-quality-hygiene/spec.md:49-57`) reads: the lights, covers, cameras
+handlers and the callback-refresh path "MUST call one shared helper instead of independently
+repeating the pattern", with the scenario "all four call sites invoke the same shared helper
+function."
+
+The apply agent's two reported differences are real, and I confirmed both by reading the code:
+
+1. **Delivery mechanism.** The three commands call `bot.sendMessage` (a new message); the refresh
+   block calls `bot.editMessageReplyMarkup` (`src/telegram.js:612-621`), an in-place edit of an
+   existing message. Different Telegram API calls with different user-visible results.
+2. **Error-handling ownership.** The commands own a `try`/`catch` that replies
+   `Error querying Home Assistant: ${error.message}` (`:118-121`). The refresh block has no
+   `catch`; errors propagate to the enclosing `callback_query` handler's catch (`:623-633`), which
+   sends a different message (`⚠️ Error in ${action}: ${error.message}`) and additionally answers
+   the callback. Routing the refresh block through `replyWithEntityKeyboard` would produce double
+   error handling and the wrong error copy.
+
+Grounds for ruling this satisfied rather than a deviation:
+
+- The requirement's operative prohibition is "instead of independently repeating the pattern."
+  After the refactor there is **zero** independent repetition of the fetch → select → build
+  sequence: it exists once, in `fetchEntityKeyboard`.
+- All four call sites do invoke that one shared helper. Three reach it through the thin
+  `replyWithEntityKeyboard` wrapper, which exists only to share *additional* code among the subset
+  that genuinely shares it; the refresh block calls `fetchEntityKeyboard` directly.
+- A DRY-hygiene requirement cannot reasonably be read to mandate a user-visible behavior change
+  that no spec requests. Forcing the fourth site into the wrapper would change the error copy and
+  the delivery mechanism, violating the change's own behavior-neutrality constraint.
+
+The one nuance an owner may wish to weigh: under the strictest reading of "all four call sites
+invoke the same shared helper function", three of the four invoke it *transitively* rather than as
+their immediate callee. I judge the two-tier decomposition (shared core plus a wrapper for the
+subset with shared surrounding behavior) to be the correct engineering answer to exactly this
+shape, and therefore compliant. Flagged transparently so the owner can overrule.
+
+### CRITICAL 1 — behavior-neutrality, independently proven
+
+The "behavior-neutral" claim was not accepted on assertion. Four independent checks:
+
+1. **Exhaustive reachability of the refresh block.** The refactor moved `await ha.getStates()` from
+   an unconditional call before the `if`/`else if` into each branch. That is safe only if one
+   branch always matches. Every branch of the action chain at `src/telegram.js:492-603` except
+   `light_on`, `light_off`, `cover_open`, `cover_close` ends in `return`. Those four are exactly
+   the actions satisfying `startsWith("light_")` or `startsWith("cover_")`. So control reaches
+   `:610` only when precisely one branch matches: same single `getStates` call, same order, same
+   `try` scope. The apply agent's claim is correct.
+2. **Eager keyboard build is unobservable.** `fetchEntityKeyboard` calls `keyboardBuilder(entities)`
+   before the empty-list check, whereas the originals built the keyboard only on the non-empty
+   path. All three builders (`src/telegram.js:42-78`) are pure `Array.prototype.map` calls;
+   `[].map()` returns `[]` and cannot throw or produce side effects.
+3. **Copy preserved verbatim.** Occurrence counts of every user-facing string are identical before
+   and after `40bd2ce`: `💡 No lights available.` 1→1, `💡 Lights:` 1→1, `🪟 No covers available.`
+   1→1, `🪟 Covers:` 1→1, `📷 No cameras available.` 2→2, `📷 Select a camera:` 2→2.
+   `Error querying Home Assistant: ${error.message}` went 4→2 because three duplicates collapsed
+   into the shared helper — that is the DRY win, not a copy change. The parameterized log line
+   `[Telegram] ${commandLabel}: ${entities.length} ${entityNoun} found` renders byte-identically to
+   each original for all three domains.
+4. **Empirical differential test.** The pre-refactor `src/telegram.js` (`40bd2ce~1`) was dropped
+   into an isolated copy alongside the **current** 129-test suite — including the 15 tests written
+   *after* the refactor — and the result was **129 passed / 0 failed**. The post-refactor suite
+   detects no observable difference from the pre-refactor implementation.
+
+**Conclusion: the refactor is behavior-neutral.** No user-visible string, error path, or HA call
+sequence changed. No new defect was introduced by the corrective slice.
 
 ### Mutation evidence (test-suite effectiveness)
 
-Run against an isolated copy of `src/` + `tests/` in a scratch directory; the repository was
-never modified. Each mutant was applied to a pristine copy, one at a time.
+Run against isolated copies of the repository in a scratch directory outside the repository; the
+working tree was never modified and remains clean at `799a199`. Each mutant was applied to a
+pristine copy, one at a time. Isolated-copy baseline: 129 pass / 0 fail.
 
-| Mutant | Result | Killed? |
-|---|---|---|
-| baseline (pristine) | 114 pass / 0 fail | — |
-| M1 invert `isAllowed` (`src/telegram.js:19`) | 107 pass / 7 fail | YES |
-| M2 chunk limit 3900 → 100000 (`src/telegram.js:23`) | 113 pass / 1 fail | YES |
-| M3 disable entity membership gate (`src/telegram.js:470`) | 111 pass / 3 fail | YES |
-| M4 drop `allowed_chat_ids` parsing (`src/index.js:41`) | 112 pass / 2 fail | YES |
-| M5 replace `requireEnv(env,"SUPERVISOR_TOKEN")` with a literal (`src/index.js:73`) | 111 pass / 3 fail | YES |
-| M6 remove SIGTERM handler (`src/index.js:126`) | 112 pass / 2 fail | YES |
-| M7 `unhandledRejection` exits instead of logging (`src/index.js:133`) | 113 pass / 1 fail | YES |
-| M8 `HA_DEFAULT_BASE_URL` → `http://homeassistant.local:8123/api` (`src/index.js:6`) | **114 pass / 0 fail** | **NO — SURVIVED** |
-| M9 gate `/chatid` (`src/telegram.js:330`) | 113 pass / 1 fail | YES |
-| M10 revert the `605726e` camera-proxy fix (`src/haClient.js:121`) | 113 pass / 1 fail | YES |
-| M11 remove `/start` allow-list gate (`src/telegram.js:275`) | 112 pass / 2 fail | YES |
+| Mutant | Target | Result | Killed? |
+|---|---|---|---|
+| M8 | `HA_DEFAULT_BASE_URL` → `http://homeassistant.local:8123/api` | 128 pass / 1 fail | **YES** (was SURVIVED) |
+| M12 | remove the `callback_query` allow-list gate entirely | 128 pass / 1 fail | YES |
+| M13 | invert the `callback_query` allow-list gate | 115 pass / 14 fail | YES |
+| M14 | change the callback denial answer copy | 128 pass / 1 fail | YES |
+| M15 | `/lights` uses the covers selector and builder | 128 pass / 1 fail | YES |
+| M16 | change the `/covers` empty-state copy | 129 pass / 0 fail | NO — survives by design (see SUGGESTION 1) |
+| M17 | change the `/cameras` list-message copy | 129 pass / 0 fail | NO — survives by design (see SUGGESTION 1) |
+| M18 | shared helper swallows the HA error instead of replying | 126 pass / 3 fail | YES |
+| M1 | invert `isAllowed` | 117 pass / 12 fail | YES (kill count up from 7) |
+| M2 | chunk limit 3900 → 100000 | 128 pass / 1 fail | YES |
+| M3 | disable the entity membership gate | 126 pass / 3 fail | YES |
+| M5 | replace `requireEnv(env,"SUPERVISOR_TOKEN")` with a literal | 126 pass / 3 fail | YES |
+| M6 | remove the SIGTERM handler | 127 pass / 2 fail | YES |
+| M7 | `unhandledRejection` exits instead of logging | 128 pass / 1 fail | YES |
+
+M16 and M17 survive because design Decision 3 deliberately decouples tests from copy, concentrating
+copy assertions in a single `user-facing copy` block per file that pins only the security-relevant
+denial wording. This is a recorded design choice, not a regression introduced by the corrective
+slice, and the machine contract (`callback_data` values, keyboard shape, HA call counts) is pinned.
+
+**Runtime probe for the no-alias scenario** (isolated copy, driving the real `createTelegramBot`):
+each of `/luces`, `/persianas`, `/camaras`, `/estado`, `/sensores`, `/puertas`, `/bateria`, `/temp`
+produced `matchedHandlers=0`, `haGetStates=0`, `messagesSent=0`.
 
 ### Spec Compliance Matrix
 
 | Capability | Requirement | Scenario | Evidence | Result |
 |---|---|---|---|---|
-| ha-connection-config | Supervisor Token From Environment Only | Startup reads the injected token | `tests/index.test.js:63-70`; `tests/haClient.test.js:87`; mutant M5 killed | COMPLIANT |
-| ha-connection-config | Supervisor Token From Environment Only | Missing token fails fast | `tests/index.test.js:72-84`; live run exits 1 with `Missing SUPERVISOR_TOKEN. Check homeassistant_api: true in config.yaml.` | COMPLIANT |
-| ha-connection-config | Supervisor Proxy Base URL By Default | Default base URL is the Supervisor proxy | `src/index.js:6` correct; `tests/index.test.js:45-52` asserts against the exported constant itself — tautological; mutant M8 survived | **UNTESTED** |
-| ha-connection-config | Supervisor Proxy Base URL By Default | No stray hostnames in source | `git grep homeassistant.local -- src` returns nothing | COMPLIANT |
-| bot-authorization | Chat-ID Allow-List Gates Privileged Commands | Allowed chat proceeds | `tests/telegram.test.js:128-137` | COMPLIANT |
-| bot-authorization | Chat-ID Allow-List Gates Privileged Commands | Disallowed chat is denied with guidance | `tests/telegram.test.js:139-148`, `:591-597`; mutant M1 killed | COMPLIANT |
-| bot-authorization | /start and /help Are Gated | Unauthorized /start is denied | `tests/telegram.test.js:533-541`; mutant M11 killed | COMPLIANT |
-| bot-authorization | /chatid Stays Ungated By Design | Unknown user discovers their chat_id | `src/telegram.js:326-333` (comment present); `tests/telegram.test.js:580-587`, `:599-605`; mutant M9 killed | COMPLIANT |
-| bot-authorization | Entity-ID Membership Validation Before Privileged Calls | Offered entity is accepted | `tests/telegram.test.js:522-529` | COMPLIANT |
-| bot-authorization | Entity-ID Membership Validation Before Privileged Calls | Forged entity is rejected before any HA call | `src/telegram.js:214-227,468-476`; `tests/telegram.test.js:473-520`; mutant M3 killed | COMPLIANT |
-| process-lifecycle | Graceful Shutdown on SIGTERM/SIGINT | SIGTERM stops polling and exits | `src/index.js:126-127`; `tests/index.test.js:284-322`; mutant M6 killed | COMPLIANT |
-| process-lifecycle | Unhandled Errors Are Logged, Not Silently Swallowed | Unhandled rejection is logged | `src/index.js:132-139`; `tests/index.test.js:324-349`; mutant M7 killed | COMPLIANT |
-| process-lifecycle | Startup Fails Fast on Missing Configuration | Missing bot token halts startup | `tests/index.test.js:153-161`; live run exits 1 with `Invalid add-on configuration — telegram_bot_token: must be a non-empty string` | COMPLIANT |
-| code-quality-hygiene | Reproducible Docker Install | Dockerfile uses npm ci | `Dockerfile:6` — `RUN npm ci --omit=dev` | COMPLIANT |
-| code-quality-hygiene | package.json Declares Engine and License | Engine and license present | `package.json:5-8` — `"license": "MIT"`, `"engines": {"node": ">=20"}` | COMPLIANT |
-| code-quality-hygiene | Lint and Format Tooling Available | Lint script runs | `package.json:13-17`; `npm run lint` exits 0 | COMPLIANT |
-| code-quality-hygiene | Single Named Constant Per Shared Magic Number | One declaration per constant | chunk size `src/telegram.js:23` OK; retry count and cooldown `src/haClient.js:1-5` OK; **camera clip duration has no named constant** | **NOT SATISFIED** |
-| code-quality-hygiene | Shared Helper for Repeated Fetch+Keyboard+Error Pattern | Shared helper reused | No such helper exists; four call sites still repeat the pattern independently | **NOT SATISFIED** |
-| test-coverage | telegram.js Tests Import the Real Module | Real authorization logic is exercised | `tests/telegram.test.js:4`; mutants M1/M2 killed | COMPLIANT |
-| test-coverage | index.js Tests Import the Real Module | Real option-parsing logic is exercised | `tests/index.test.js:5-10`; mutant M4 killed | COMPLIANT |
-| test-coverage | New Behavior Introduced By This Change Is Covered | Forged entity_id is rejected without an HA call | `tests/telegram.test.js:473-494`; `tests/index.test.js:284-349` | COMPLIANT |
-| test-coverage | Full Suite Stays Green | CI passes end to end | 114/114 green; no re-implemented production logic in any test file | COMPLIANT |
-| bot-localization | English-Only User-Facing Copy | No Spanish in outbound messages | Full read of `src/telegram.js` + `src/formatter.js`; `check:lang` clean; unaccented-Spanish word scan clean | COMPLIANT |
-| bot-localization | English-Only Logs and Comments | No Spanish log strings remain | Full read of all four `src/` modules; the former `haClient.js:153` comment is now English at `src/haClient.js:212-213` | COMPLIANT |
-| bot-localization | Commands Are Renamed to English With No Aliases | Old Spanish command is no longer recognized | Statically verified: the 11 `bot.onText` registrations contain no Spanish name. No test drives an old command | **UNTESTED** |
-| bot-localization | Commands Are Renamed to English With No Aliases | New English command runs the flow (`/lights`) | `/lights`, `/covers`, `/cameras` handlers are never invoked by any test (coverage: `src/telegram.js` 341-368, 392-419, 423-448 uncovered) | **UNTESTED** |
-| addon-configuration | Renamed and Retyped Options | config.yaml reflects the new schema | `config.yaml:17-25` matches the table exactly | COMPLIANT |
-| addon-configuration | Add-on Description Is English | Description is English | `config.yaml:4` | COMPLIANT |
-| project-documentation | README Matches Actual Connection and Authorization Behavior | README connection section matches code | `README.md:36-64,126-144,191-209,253-262` cross-checked against `src/index.js`, `src/telegram.js`, `Dockerfile` | COMPLIANT |
-| project-documentation | Command Migration Table | Table is present and complete | `README.md:154-169` (8 renames) + `README.md:108-123` (11 commands) + no-alias note at `:151-152,167-169` | COMPLIANT |
-| project-documentation | Config Migration Note | Migration note is present | `README.md:171-182` | COMPLIANT |
-| project-documentation | Testing Section Matches Reality | Testing claim matches the test-coverage capability | `README.md:227-231`; verified true by reading the four test files | COMPLIANT |
-| project-documentation | OPTIONS_PATH Documented | OPTIONS_PATH appears in README | `README.md:205,238-249` | COMPLIANT |
+| ha-connection-config | Supervisor Token From Environment Only | Startup reads the injected token | `tests/index.test.js:63-70`; `tests/haClient.test.js:87`; mutant M5 killed | ✅ COMPLIANT |
+| ha-connection-config | Supervisor Token From Environment Only | Missing token fails fast | `tests/index.test.js:72-84`; `src/index.js:12-20` | ✅ COMPLIANT |
+| ha-connection-config | Supervisor Proxy Base URL By Default | Default base URL is the Supervisor proxy | `tests/index.test.js:55-56` pins the literal; **mutant M8 now killed** | ✅ COMPLIANT |
+| ha-connection-config | Supervisor Proxy Base URL By Default | No stray hostnames in source | `rg homeassistant.local src/` returns nothing | ✅ COMPLIANT |
+| bot-authorization | Chat-ID Allow-List Gates Privileged Commands | Allowed chat proceeds | `tests/telegram.test.js:128-137`; callback positive control `:653-664` | ✅ COMPLIANT |
+| bot-authorization | Chat-ID Allow-List Gates Privileged Commands | Disallowed chat is denied with guidance | `tests/telegram.test.js:139-148`, `:640-652`, `:816-826`; mutants M1, M12, M13, M14 killed | ✅ COMPLIANT |
+| bot-authorization | /start and /help Are Gated | Unauthorized /start is denied | `tests/telegram.test.js` `/start` and `/help` gating block | ✅ COMPLIANT |
+| bot-authorization | /chatid Stays Ungated By Design | Unknown user discovers their chat_id | `src/telegram.js:375`; `tests/telegram.test.js` `/chatid` cases | ✅ COMPLIANT |
+| bot-authorization | Entity-ID Membership Validation Before Privileged Calls | Offered entity is accepted | `tests/telegram.test.js` callback positive cases | ✅ COMPLIANT |
+| bot-authorization | Entity-ID Membership Validation Before Privileged Calls | Forged entity rejected before any HA call | `src/telegram.js:259-272,484-490`; mutant M3 killed | ✅ COMPLIANT |
+| process-lifecycle | Graceful Shutdown on SIGTERM/SIGINT | SIGTERM stops polling and exits | `src/index.js:126-127`; mutant M6 killed | ✅ COMPLIANT |
+| process-lifecycle | Unhandled Errors Are Logged, Not Silently Swallowed | Unhandled rejection is logged | `src/index.js:132-134`; mutant M7 killed | ✅ COMPLIANT |
+| process-lifecycle | Startup Fails Fast on Missing Configuration | Missing bot token halts startup | `tests/index.test.js:153-161`; `src/index.js:68-70` | ✅ COMPLIANT |
+| code-quality-hygiene | Reproducible Docker Install | Dockerfile uses npm ci | `Dockerfile:6` — `RUN npm ci --omit=dev` | ✅ COMPLIANT |
+| code-quality-hygiene | package.json Declares Engine and License | Engine and license present | `package.json:5-7` — `"license": "MIT"`, `"node": ">=20"` | ✅ COMPLIANT |
+| code-quality-hygiene | Lint and Format Tooling Available | Lint script runs | `package.json:13-16`; `npx biome check .` exits 0 | ✅ COMPLIANT |
+| code-quality-hygiene | Single Named Constant Per Shared Magic Number | One declaration per constant | chunk size `src/telegram.js:24`; `CAMERA_CLIP_DURATION_SECONDS` `src/haClient.js:4`; `ATTEMPTS`/`DELAY_MS`/`SNAPSHOT_COOLDOWN_MS` `src/haClient.js:7-9`. No unnamed `30` survives anywhere in `src/` | ✅ COMPLIANT |
+| code-quality-hygiene | Shared Helper for Repeated Fetch+Keyboard+Error Pattern | Shared helper reused | `fetchEntityKeyboard` `src/telegram.js:86-90` invoked by all four sites; behavior-neutrality independently proven | ✅ COMPLIANT |
+| test-coverage | telegram.js Tests Import the Real Module | Real authorization logic is exercised | `tests/telegram.test.js` imports `createTelegramBot`; mutants M1, M2, M3 killed | ✅ COMPLIANT |
+| test-coverage | index.js Tests Import the Real Module | Real option-parsing logic is exercised | `tests/index.test.js:5-10`; mutant M5 killed | ✅ COMPLIANT |
+| test-coverage | New Behavior Introduced By This Change Is Covered | Forged entity_id rejected without an HA call | `tests/telegram.test.js` forged-entity block; mutant M3 killed | ✅ COMPLIANT |
+| test-coverage | Full Suite Stays Green | CI passes end to end | 129/129 green; no re-implemented production logic in any test file | ✅ COMPLIANT |
+| bot-localization | English-Only User-Facing Copy | No Spanish in outbound messages | `check:lang` clean; accented and unaccented Spanish scans over `src/` return nothing | ✅ COMPLIANT |
+| bot-localization | English-Only Logs and Comments | No Spanish log strings remain | Same scans; all comments added by the corrective slice are English | ✅ COMPLIANT |
+| bot-localization | Commands Are Renamed to English With No Aliases | Old Spanish command is no longer recognized | 11 `bot.onText` regexes all English; verifier runtime probe: 8 old commands → 0 handlers, 0 HA calls, 0 messages. **No covering test in the committed suite** | ❌ UNTESTED |
+| bot-localization | Commands Are Renamed to English With No Aliases | New English command runs the flow | `tests/telegram.test.js:235-413`; all 11 registered commands driven by tests; mutant M15 killed | ✅ COMPLIANT |
+| addon-configuration | Renamed and Retyped Options | config.yaml reflects the new schema | `config.yaml:17-25`; untouched by the corrective slice | ✅ COMPLIANT |
+| addon-configuration | Add-on Description Is English | Description is English | `config.yaml:4` | ✅ COMPLIANT |
+| project-documentation | README Matches Actual Connection and Authorization Behavior | README connection section matches code | `README.md` cross-checked; untouched by the corrective slice | ✅ COMPLIANT |
+| project-documentation | Command Migration Table | Table is present and complete | `README.md:154-169` | ✅ COMPLIANT |
+| project-documentation | Config Migration Note | Migration note is present | `README.md:171-182` | ✅ COMPLIANT |
+| project-documentation | Testing Section Matches Reality | Testing claim matches the test-coverage capability | `README.md:227-231` | ✅ COMPLIANT |
+| project-documentation | OPTIONS_PATH Documented | OPTIONS_PATH appears in README | `README.md:205,238-249` | ✅ COMPLIANT |
 
-**Compliance summary**: 28/33 scenarios compliant, 5 non-compliant (2 NOT SATISFIED, 3 UNTESTED).
-**Requirement summary**: 26/28 requirements satisfied.
+**Compliance summary**: 32/33 scenarios compliant, 1 UNTESTED, 0 PARTIAL, 0 FAILING.
+**Requirement summary**: 28/28 requirements satisfied.
 
-### Correctness (Static Evidence — highest-risk claims)
+### Per-capability verdict
 
-| Claim under verification | Status | Evidence |
-|---|---|---|
-| No hardcoded credential anywhere in `src/`, `tests/`, `config.yaml`, `Dockerfile`, `README.md`, or any fixture | CONFIRMED | JWT-shaped, long-base64, and Telegram-token-shaped pattern scans over all tracked files return nothing; `git log --all -S 'eyJhbGciOi'` returns nothing, so the incident literal was never committed. README examples use `<your-long-lived-access-token>` placeholders only |
-| `loadConfig()` is the single reader of `process.env` in `src/` | CONFIRMED | `git grep process.env -- src` returns exactly one hit, `src/index.js:57` |
-| Exactly one `// biome-ignore` in the whole repository | CONFIRMED | `git grep biome-ignore` returns exactly one code hit, `src/index.js:56` |
-| The `noProcessEnv` rule genuinely fires (not a silent no-op) | CONFIRMED | Isolated probe with this repo's own `biome.json` rule block: an unsuppressed `process.env` read emits `lint/style/noProcessEnv`; the suppressed form emits nothing |
-| Tests import and drive the real modules | CONFIRMED | `tests/telegram.test.js:4` imports `createTelegramBot`; `tests/index.test.js:5-10` imports `bootstrap`/`loadConfig`/`installProcessHandlers`/`HA_DEFAULT_BASE_URL`; mutants M1–M7, M9–M11 all killed, so real handler bodies are driven |
-| `entity_id` validation is real authorization, not a shape-only regex | CONFIRMED | `src/telegram.js:198-206` maps each action to the same formatter selector that built the keyboard (`getAllLights`/`getAllCovers`/`getAllCameras`); `:225` requires exact `entity_id` membership in the selector output; the regex at `:193` is explicitly labelled shape-only |
-| `/chatid` is still ungated with a deliberate-design comment | CONFIRMED | `src/telegram.js:326-333`; comment names the spec requirement and instructs not to add `isAllowed` |
-| `localeCompare(..., "es")` retained | CONFIRMED | `src/formatter.js:15` and `:123`, with an English rationale comment at `:9-13` |
-| Spanish `friendly_name` fixtures retained as data | CONFIRMED | `tests/formatter.test.js:34-107` keeps `Salón`, `Batería ventana`, etc., with an explanatory comment at `:19-22` |
-| `README.md` matches reality | CONFIRMED (one imprecision) | All 3 option names/types match `config.yaml:17-25`; all 11 commands match the `bot.onText` registrations; all 7 documented scripts exist in `package.json:10-18`. See WARNING 5 for the one overstated sentence |
-| `605726e` regression fix is correct and covered | CONFIRMED | `src/haClient.js:96,107,118-122` distinguishes empty-but-reachable from every-candidate-failed; `:190` only disables the proxy on the latter; `tests/haClient.test.js:291-343` covers both directions; mutant M10 killed |
+| Capability | Prior verdict | This verdict | Regression? |
+|---|---|---|---|
+| ha-connection-config | FAIL (1 UNTESTED) | **PASS** | No |
+| bot-authorization | PASS | **PASS** (strengthened: callback denial now covered) | No |
+| process-lifecycle | PASS | **PASS** | No |
+| code-quality-hygiene | FAIL (2 MUSTs unmet) | **PASS** | No |
+| test-coverage | PASS | **PASS** (coverage 88.35% → 94.77%) | No |
+| bot-localization | FAIL (2 UNTESTED) | **FAIL** (1 of 2 closed; 1 still UNTESTED) | No |
+| addon-configuration | PASS | **PASS** (untouched) | No |
+| project-documentation | PASS | **PASS** (untouched) | No |
+
+### Regression check on the corrective slice
+
+Change surface `622fd04..799a199`: `biome.json`, `src/haClient.js`, `src/telegram.js`,
+`tests/index.test.js`, `tests/telegram.test.js`, plus two openspec files. `config.yaml`,
+`Dockerfile`, `package.json`, `README.md`, `src/index.js`, and `src/formatter.js` were not touched.
+
+Checks performed for a newly introduced defect:
+
+- **Import cycle**: `src/telegram.js` now imports `CAMERA_CLIP_DURATION_SECONDS` from
+  `src/haClient.js`. `haClient.js` imports no local module, so the graph stays acyclic
+  (`index.js` → {`haClient.js`, `telegram.js`}, `telegram.js` → {`formatter.js`, `haClient.js`}).
+  `haClient.js` has no top-level side effects beyond two frozen constant declarations.
+- **Callback contract stability**: the computed `` `camera_vid${CAMERA_CLIP_DURATION_SECONDS}` ``
+  key, the `callback_data` payload, the action comparison, and the `_30s.mp4` filename all still
+  render to the same literals as before the extraction.
+- **Prior mutants re-run**: M1, M2, M3, M5, M6, M7 all still killed. No capability lost coverage.
+- **Differential test**: pre-refactor `telegram.js` + current 129-test suite = 129 pass / 0 fail.
+
+**No new defect was found.**
 
 ### Coherence (Design — Engram #70)
 
 | Decision | Followed? | Notes |
-|---|---|---|
-| 1 — Testability seam (`createBot`, `logger`) | YES | `src/telegram.js:234-241`; `tests/helpers/fakeTelegramBot.js` |
-| 2 — `loadConfig()` inside `src/index.js`, no new `src/` file | YES | `src/index.js:57-87`; zero new files under `src/` |
-| 2 — Biome `process.env` restriction as compensating control | PARTIAL | Rule active and proven to fire, but scoped to `biome.json:10` includes, not repo-wide (WARNING 4) |
-| 3 — Copy inline; tests decoupled from copy | YES | One `describe("user-facing copy")` block per file (`tests/telegram.test.js:590`) |
-| 3 — Collation stays `"es"` | YES | `src/formatter.js:15,123` |
-| 4 — haClient constants + injected collaborators, public surface unchanged | YES | `src/haClient.js:1-18,261-267` |
-| 5 — Two-stage entity gate | YES | `src/telegram.js:192-227` |
-| 6 — `installProcessHandlers` with injected `processRef`/`exit` | YES | `src/index.js:92-140` |
-| 7 — Biome devDependency + `biome.json` + scripts | YES | `package.json:13-17,22-24`; `biome.json` |
-| Accepted deviation: `size:exception` on `ae4b14b` | CONFIRMED | Commit exists; task `3.6` documents the 423-line measurement and the escalation |
-| Accepted deviation: `src/telegram.js` stays one module | CONFIRMED | 627 lines, single module, no ports/adapters |
-| Design's DRY target: one shared fetch+keyboard+error helper | **NO** | Only keyboard *builders* were shared; see CRITICAL 1 |
+|----------|-----------|-------|
+| 1 — Testability seam (`createBot`, `logger`) | ✅ Yes | Used by all 15 new tests |
+| 2 — `loadConfig()` inside `src/index.js`, no new `src/` file | ✅ Yes | Zero new files under `src/` |
+| 2 — Biome `process.env` restriction as compensating control | ✅ Yes (was PARTIAL) | Now covers `src/**`, `tests/**`, `scripts/**`, and root JS — every tracked `.js` file. Proven by probe |
+| 3 — Copy inline; tests decoupled from copy | ✅ Yes | Explains surviving mutants M16/M17 |
+| 3 — Collation stays `"es"` | ✅ Yes | `src/formatter.js:15,123` untouched |
+| 4 — haClient constants + injected collaborators, public surface unchanged | ✅ Yes | `CAMERA_CLIP_DURATION_SECONDS` added as a named export; `createHomeAssistantClient` return shape unchanged |
+| 5 — Two-stage entity gate | ✅ Yes | `src/telegram.js:237-272` |
+| 6 — `installProcessHandlers` with injected `processRef`/`exit` | ✅ Yes | Untouched |
+| 7 — Biome devDependency + `biome.json` + scripts | ✅ Yes | Scope widened |
+| Accepted deviation: `size:exception` on `ae4b14b` | ✅ Confirmed | Documented in task `3.6`, now checked |
+| Accepted deviation: `src/telegram.js` stays one module | ✅ Confirmed | 643 lines, single module, no ports/adapters |
+| Design's DRY target: one shared fetch+keyboard+error helper | ✅ Yes (was NO) | `fetchEntityKeyboard` + `replyWithEntityKeyboard` |
 
 ### Issues Found
 
 **CRITICAL**
 
-1. **`code-quality-hygiene` → "Shared Helper for Repeated Fetch+Keyboard+Error Pattern" is UNMET.**
-   The requirement states that the lights, covers, cameras handlers and the callback-refresh
-   path "MUST call one shared helper instead of independently repeating the pattern," and its
-   scenario requires "all four call sites invoke the same shared helper function." No such
-   helper exists. `src/telegram.js:340-369` (`/lights`), `:391-420` (`/covers`), and
-   `:422-449` (`/cameras`) each independently repeat the identical sequence — allow-list
-   check, `try`, `await ha.getStates()`, selector call, `console.log` count, empty-list early
-   return, `sendMessage` with an inline keyboard, `catch` with the same error copy — and the
-   refresh block at `:593-607` repeats the fetch-plus-rebuild half. Phase 6 extracted
-   `buildLightKeyboard`/`buildCoverKeyboard` (`src/telegram.js:50-77`), which shares the
-   keyboard *construction* only; the apply-progress artifact describes that work as satisfying
-   this requirement, which it does not.
+1. **`bot-localization` → "Old Spanish command is no longer recognized" has no covering test in the
+   committed suite.** No test in `tests/` drives `/luces` or any other retired Spanish command, so
+   nothing prevents a future edit from re-registering one. This is unchanged since the prior FAIL
+   report, which already recorded this scenario as ❌ UNTESTED; the corrective slice did not scope
+   it.
 
-2. **`code-quality-hygiene` → "Single Named Constant Per Shared Magic Number" is UNMET for the
-   camera clip duration.** Three of the four named values are correct (chunk size
-   `src/telegram.js:23`; `HA_RETRY.ATTEMPTS` and `HA_RETRY.SNAPSHOT_COOLDOWN_MS`
-   `src/haClient.js:1-5`). The camera clip duration has no named constant anywhere: the raw
-   literal `30` appears as a default parameter at `src/haClient.js:219` and as a call argument
-   at `src/telegram.js:552`, and is additionally hard-coded into five user-facing strings and
-   identifiers at `src/telegram.js:89,90,542,548,559,560`. Changing the clip length today
-   requires editing at least seven places across two modules.
+   I am reporting it as CRITICAL rather than WARNING for consistency, not because it worsened. The
+   verification contract is explicit that a spec scenario is compliant only when a covering test
+   passed at runtime, and my own prior report classified this exact scenario as UNTESTED at
+   `622fd04`. Nothing in the code or the suite changed for it between the two runs. Softening it to
+   a warning now, purely because everything else was fixed, would be rounding a known gap up to
+   passing.
 
-3. **`ha-connection-config` → "Default base URL is the Supervisor proxy" has no non-tautological
-   covering test; the original incident's second defect can be reintroduced silently.** The
-   production value at `src/index.js:6` is correct. The only test of the default,
-   `tests/index.test.js:45-52`, asserts
-   `config.homeAssistant.baseUrl === HA_DEFAULT_BASE_URL` — both sides are read from the same
-   module, so the assertion holds for *any* value of the constant. Proven by mutation M8:
-   rewriting `HA_DEFAULT_BASE_URL` to the exact pre-change defect value
-   `http://homeassistant.local:8123/api` leaves the suite at **114 passed / 0 failed**. Every
-   other `http://supervisor/core/api` literal in the suite is an *input* passed into
-   `createHomeAssistantClient` (`tests/haClient.test.js:77,110,146,168,195,219,237,269,298,328`)
-   or an assertion against a hand-written fake config (`tests/index.test.js:194,219`), so none
-   of them pin the default either. This change exists because that constant was once wrong;
-   the suite currently cannot detect it going wrong again.
+   **This blocker is qualitatively different from the prior three**, and the owner should weigh
+   that when deciding:
+   - The underlying property is *true* and deterministically decidable — the complete set of
+     registered patterns is 11 literal regexes, none of which can match a Spanish command.
+   - This verifier obtained direct runtime evidence: `/luces`, `/persianas`, `/camaras`, `/estado`,
+     `/sensores`, `/puertas`, `/bateria`, `/temp` each produced 0 matched handlers, 0 HA calls and
+     0 messages against the real `createTelegramBot`.
+   - The scenario's `THEN` clause ("falls through to unknown-command handling") describes behavior
+     that does not exist: there is no catch-all `bot.on("message")` handler, so an unrecognized
+     command produces no reply at all. `README.md:167-169` documents the real behavior correctly.
+
+   **Remedy**: one test in `tests/telegram.test.js` asserting that `emitText("/luces", 1)` produces
+   `ha.calls.getStates === 0` and `bot.sentMessages.length === 0`. Alternatively, the owner may
+   amend the scenario's `THEN` clause to match the implemented no-reply behavior and accept the
+   static plus runtime proof, which is a spec-amendment decision this verifier cannot make
+   unilaterally.
 
 **WARNING**
 
-1. **The `callback_query` allow-list denial branch has zero test coverage.** The
-   `bot-authorization` requirement covers "any command **or callback**." The command direction
-   is well covered, but coverage reports `src/telegram.js:461-464` — the body of the
-   `if (!isAllowed(chatId, allowedChatIds))` guard inside the `callback_query` handler
-   (`:460-464`) — as never executed. No test sends an inline-button callback from a chat
-   absent from the allow-list. Mutant M1 was killed only through command paths.
+1. **CI installs with `npm install` while the Dockerfile uses `npm ci`.**
+   `.github/workflows/tests.yml:20` does not validate against the committed lockfile that
+   `Dockerfile:6` depends on. Carried forward unchanged; not a spec violation, since the
+   `code-quality-hygiene` requirement names only the Dockerfile.
 
-2. **Three command handlers are never invoked by any test.** Coverage shows
-   `src/telegram.js:341-368` (`/lights`), `:392-419` (`/covers`), and `:423-448` (`/cameras`)
-   entirely uncovered — roughly 90 lines including their allow-list gates, empty-list replies,
-   keyboard construction, and error handling. This is the direct cause of the `bot-localization`
-   "New English command runs the flow" scenario being UNTESTED, and it leaves the design's
-   stated testing strategy ("telegram behavioral: every command") unfulfilled.
-
-3. **No test asserts that an old Spanish command is ignored.** The no-alias property was
-   verified statically (all 11 `bot.onText` regexes are English), but nothing prevents a future
-   edit from re-registering `/luces`. Note also that the spec scenario's wording ("falls
-   through to unknown-command handling") does not match reality: there is no catch-all
-   `bot.on("message")` handler, so an unrecognized command produces no reply at all.
-   `README.md:167-169` documents the real behavior correctly.
-
-4. **The Biome `process.env` restriction is narrower than the design and README claim.**
-   `biome.json:10` limits the checked file set to `src/**`, `tests/**`, and `*.json`. Biome
-   confirms this by reporting "Checked 11 files". The design (Engram #70, Decision 2) specifies
-   a *repo-wide* restriction as the compensating control for the function-scoped credential
-   boundary. In practice a new `process.env` read added under `scripts/**` or at the repository
-   root would not be flagged, weakening the "any second suppression is a review red flag"
-   signal the design relies on.
-
-5. **`README.md:233-235` overstates that Biome forbids `process.env` "anywhere except the
-   single authorized entry point."** Accurate for `src/` and `tests/`; not accurate for the
-   rest of the repository, per WARNING 4.
-
-6. **Task `3.6` is unchecked while both the tasks artifact and apply-progress claim completion.**
-   `openspec/changes/document-and-refactor/tasks.md:139` is `- [ ]`. Its own body records the
-   measurement and escalation, and the `size:exception` was approved, so this is bookkeeping
-   drift rather than unfinished work — but the artifacts' "all complete" claim is currently
-   false, and any automated completeness check will flag it.
-
-7. **CI installs with `npm install` while the Dockerfile uses `npm ci`.**
-   `.github/workflows/tests.yml:20` runs `npm install`, so CI does not validate against the
-   committed lockfile that `Dockerfile:6` depends on. The `code-quality-hygiene` requirement
-   names only the Dockerfile, so this is not a spec violation, but it defeats part of the
-   reproducibility intent.
+2. **The outer `callback_query` error handler is untested** (`src/telegram.js:624-633`,
+   uncovered). This matters slightly more than before: the CRITICAL 1 refactor deliberately leaves
+   the keyboard-refresh path depending on this handler for its error behavior. Behavior-neutrality
+   is proven by other means above, but the error path itself has no covering test.
 
 **SUGGESTION**
 
-1. **Configuration failures bypass the intended top-level error handler.** At
-   `src/index.js:171`, `loadConfig()` is evaluated as an *argument* to `bootstrap(...)`, so a
-   synchronous throw escapes before the `.catch` at `:171-174` is attached. Verified by
-   execution: with an empty `telegram_bot_token` and with a missing `SUPERVISOR_TOKEN`, the
-   process prints a raw ESM stack trace (`at file://.../src/index.js:171:23`) rather than
-   `Error starting HA Status Bot: ...`. The spec requirement still holds — the message is
-   explicit English and the exit code is `1` in all three failure cases tested (empty token,
-   missing `SUPERVISOR_TOKEN`, unreadable options file) — but the handler is dead code for the
-   most likely startup failure. Hoisting `const config = loadConfig();` into the `try`/promise
-   chain would fix it.
+1. **Per-command copy is not pinned.** Mutants M16 (`/covers` empty-state text) and M17
+   (`/cameras` list text) survive. This follows design Decision 3 and is not a defect, but the
+   `user-facing copy` block pins only three strings. Note also that its callback assertion uses
+   `/[Nn]ot authorized/`, which matches both `"Not authorized."` and `"Entity not authorized."`, so
+   it does not discriminate the allow-list denial from the entity-membership denial; the behavioral
+   test at `tests/telegram.test.js:640-652` carries that weight instead.
 
-2. **`retryForNonEmpty` sleeps after its final attempt.** `src/haClient.js:131-145` calls
-   `await sleep(delayMs)` inside the loop unconditionally, so the last iteration waits
-   `HA_RETRY.DELAY_MS` before throwing. In production that is 1200 ms of pure latency on every
-   exhausted snapshot retry. The existing test asserts `sleep.calls` is `[1200, 1200, 1200]`,
-   i.e. it currently pins the extra sleep as expected behavior.
+2. **`README.md:233-235` remains marginally overstated.** It says Biome forbids `process.env`
+   "anywhere except the single authorized entry point". True for every JS file that exists today; a
+   future top-level directory (e.g. `tools/`) would not be covered — confirmed by probe. Adding
+   `**/*.js` or an explicit `!` exclusion list would close it.
 
-3. **A local, untracked `debug-options.json` still holds a Telegram bot token in plaintext.**
-   The file is correctly ignored (`.gitignore:3`), is not tracked, and has no history, so it
-   does not violate any requirement. Its contents were not inspected beyond key names, types,
-   and lengths: it carries a 46-character `telegram_bot_token` string plus the pre-2.0.0 option
-   names `allowed_chat_ids` (string) and `low_battery_threshold`. Two operational
-   recommendations: rotate that bot token through BotFather, and either delete the file or
-   rewrite it with the 2.0.0 option names, since pointing `OPTIONS_PATH` at it now fails
-   validation.
+3. **Configuration failures still bypass the top-level error handler.** `src/index.js:171`
+   evaluates `loadConfig()` as an argument to `bootstrap(...)`, so a synchronous throw escapes
+   before `.catch` is attached. Carried forward unchanged.
 
-4. **Other uncovered branches in `src/telegram.js`** worth a follow-up slice:
-   `113-124` (`waitForMediaFile` retry/timeout), `128-147` (expired-callback detection and
-   `safeAnswerCallback` error path), `512-517` (`camera_list` with zero cameras),
-   `581-583` (re-throw of a non-5xx `camera.record` error), `609-618` (the callback error
-   handler that sends the `⚠️ Error in ...` message).
+4. **`retryForNonEmpty` still sleeps after its final attempt** (`src/haClient.js:136-149`),
+   costing `HA_RETRY.DELAY_MS` of pure latency on every exhausted snapshot retry.
 
-5. **`scripts/check-lang.js` is outside the Biome file set** (`biome.json:10`), so the only
-   JavaScript file in the repository that is neither linted nor format-checked is the one that
-   enforces a code-style policy.
+5. **The untracked `debug-options.json` still holds a Telegram bot token in plaintext.** Correctly
+   git-ignored with no history, so no requirement is violated. Rotating that token through BotFather
+   and deleting or updating the file to the 2.0.0 option names remains recommended.
+
+6. **Remaining uncovered branches in `src/telegram.js`** for a follow-up slice: `158-169`
+   (`waitForMediaFile` retry/timeout), `173-180`/`186-192` (expired-callback detection and
+   `safeAnswerCallback` error path), `197-198` (`ensureNonEmptyBuffer` throw), `526-531`
+   (`camera_list` with zero cameras), `595-597` (re-throw of a non-5xx `camera.record` error).
+
+### Known accepted deviations (verified, not re-reported as defects)
+
+| Deviation | State |
+|---|---|
+| Owner-approved documented `size:exception` on `ae4b14b` (423 lines vs 400 budget) | Confirmed; task `3.6` records the measurement and escalation and is now checked |
+| Credential boundary is a `loadConfig()` function in `src/index.js`, not a separate module | Confirmed; zero new files under `src/`. The `noProcessEnv` compensating control is now genuinely repository-wide across all tracked JS, strengthening the acknowledged-weaker control |
+| `src/telegram.js` remains a single module; ports-and-adapters was an explicit non-goal | Confirmed; the corrective slice added two internal functions, no layering |
+| Spanish `friendly_name` fixtures and `localeCompare(..., "es")` are intentional | Confirmed; `src/formatter.js` and `tests/formatter.test.js` untouched by the corrective slice |
 
 ### Unverifiable Without a Live Home Assistant Instance
 
-These requirements are satisfied by code inspection and unit tests but cannot be proven here.
-Classified as unverifiable rather than passed.
-
-| Item | What a human must do to confirm |
-|---|---|
-| Supervisor actually injects `SUPERVISOR_TOKEN` because of `homeassistant_api: true` | Install the 2.0.0 add-on on a Supervisor instance and confirm it reaches `HA Status Bot started successfully.` without setting any environment variable manually |
-| Real `SIGTERM` stops real long polling and exits 0 | Stop the add-on from the Home Assistant UI and confirm the log shows `Received SIGTERM, shutting down gracefully...` with no force-exit line and no restart loop |
-| Supervisor UI accepts the `list(str)` and `int(0,100)` schema and forces reconfiguration | Upgrade an existing 1.x install and confirm the Configuration tab shows the three new options and refuses to start until `telegram_bot_token` is set |
-| End-to-end English replies and inline buttons over real Telegram | Run all 11 commands and exercise light/cover toggles and both camera actions from an allowed chat |
-| Camera snapshot/record behavior against real camera entities | Trigger `camera_img` and `camera_vid30` on a camera that returns blank frames and confirm the proxy path is still used on the next attempt |
+Unchanged from the prior report. Satisfied by code inspection and unit tests, but not provable here:
+Supervisor token injection via `homeassistant_api: true`; real `SIGTERM` against real long polling;
+Supervisor UI acceptance of the `list(str)` and `int(0,100)` schema; end-to-end English replies and
+inline buttons over real Telegram; camera snapshot/record behavior against real camera entities.
 
 ### Verdict
 
-**FAIL**
+**FAIL** — one blocker, narrow, pre-existing, and trivially remediable.
 
-Two `code-quality-hygiene` MUST requirements are unimplemented, and the regression guard for one
-of the two defects that motivated this entire change is absent — proven by a surviving mutant,
-not inferred. Everything else is in good shape: 114/114 tests green, Biome and the language guard
-clean, no credential anywhere in tracked source or history, `loadConfig` genuinely the single
-`process.env` reader with exactly one working suppression, real modules genuinely exercised by
-the tests, entity authorization genuinely a membership check, `/chatid` deliberately ungated, the
-`"es"` collation and Spanish fixtures correctly preserved, and a README that matches the code.
+All three CRITICAL blockers from the prior report are genuinely closed, each confirmed by execution
+rather than inspection: the default base URL mutant that previously survived is now killed
+(128/1), the camera clip duration has exactly one named declaration with no unnamed `30` anywhere
+in `src/`, and the shared fetch+keyboard+error helper exists and is invoked by all four call sites.
+The deliberate non-unification of the callback-refresh path is a correct engineering judgment that
+satisfies the requirement, not a deviation needing approval. The refactor is behavior-neutral —
+proven four ways, including running the current 129-test suite against the pre-refactor module. No
+new defect was introduced by the corrective slice, and no previously passing capability regressed:
+all six prior mutants are still killed and coverage rose from 88.35% to 94.77%. Two WARNINGs do
+not block: a CI/Dockerfile install mismatch outside the spec and an untested callback error
+handler.
+
+The single blocker is a pre-existing, out-of-scope gap the corrective slice never claimed to
+address: the `bot-localization` "Old Spanish command is no longer recognized" scenario still has no
+covering test in the committed suite. My prior report recorded that same scenario as UNTESTED at
+`622fd04`, and nothing about it changed. Reclassifying it as passing now, purely because
+everything else was fixed, would be rounding up.
+
+**Not ready for `sdd-archive`.** One test closes it — `emitText("/luces", 1)` asserting zero HA
+calls and zero messages sent — after which this change is archive-ready with warnings only. The
+owner may instead amend the scenario's unimplementable `THEN` clause and accept the static plus
+runtime proof recorded above; that is a spec decision, not a verification one.
