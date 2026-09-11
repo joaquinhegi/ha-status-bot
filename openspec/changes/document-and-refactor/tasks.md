@@ -324,33 +324,43 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
       Full suite: `node --test` → 113/113 passing (unchanged from before this unit), zero regressions.
       Committed at `db7d57e` on `test/telegram-seam-and-coverage`.
 
-## Phase 9: config.yaml Rename, Dockerfile, package.json, Biome (Unit 6 — PR 9)
+## Phase 9: config.yaml Rename, Dockerfile, package.json, Biome (Unit 6 — PR 9) — DONE
 
-- [ ] 9.1 In `config.yaml`, rename `telegram_token` → `telegram_bot_token` (type `password` unchanged)
+- [x] 9.1 In `config.yaml`, rename `telegram_token` → `telegram_bot_token` (type `password` unchanged)
       in both `options` (`:18`) and `schema` (`:23`); update the `src/index.js` `loadConfig` field
       read to match.
-- [ ] 9.2 In `config.yaml`, retype `allowed_chat_ids` from `str` to `list(str)` in `schema` (`:24`);
+- [x] 9.2 In `config.yaml`, retype `allowed_chat_ids` from `str` to `list(str)` in `schema` (`:24`);
       name unchanged. Update `loadConfig` to accept the array directly and drop the comma-split
       parsing branch (list input replaces `parseAllowedChatIds`'s comma path).
-- [ ] 9.3 In `config.yaml`, rename `low_battery_threshold` → `low_battery_threshold_percent`,
+- [x] 9.3 In `config.yaml`, rename `low_battery_threshold` → `low_battery_threshold_percent`,
       bounded `int(0,100)` in `schema` (`:25`) and `options` (`:20`); update `loadConfig`'s threshold
       field name and add the 0-100 bound to its validation table.
-- [ ] 9.4 In `config.yaml:4`, translate `description` to English.
-- [ ] 9.5 In `config.yaml:2`, bump `version` from `"1.0.1"` to `"1.1.0"` — two breaking user-visible
+- [x] 9.4 In `config.yaml:4`, translate `description` to English.
+- [x] 9.5 In `config.yaml:2`, bump `version` from `"1.0.1"` to `"1.1.0"` — two breaking user-visible
       changes (English replies/renamed commands, renamed options) ship in this change.
-- [ ] 9.6 In `Dockerfile:6`, replace `npm install --omit=dev` with `npm ci --omit=dev`.
-- [ ] 9.7 In `package.json`, add `"engines": { "node": ">=20" }` and `"license": "MIT"`; bump
+- [x] 9.6 In `Dockerfile:6`, replace `npm install --omit=dev` with `npm ci --omit=dev`.
+- [x] 9.7 In `package.json`, add `"engines": { "node": ">=20" }` and `"license": "MIT"`; bump
       `"version"` to `"1.1.0"` to match 9.5.
-- [ ] 9.8 Add `@biomejs/biome` as a devDependency; create `biome.json` with formatter + linter rules,
+- [x] 9.8 Add `@biomejs/biome` as a devDependency; create `biome.json` with formatter + linter rules,
       including a repo-wide `process.env` restriction (Biome's `noProcessEnv` nursery rule if the
       pinned version supports it; otherwise a restricted-globals rule) that flags every read outside
       `loadConfig`. Add one `// biome-ignore` at the single legitimate read inside `loadConfig`.
-- [ ] 9.9 Add `lint`, `lint:fix`, `format`, `check` npm scripts to `package.json`.
-- [ ] 9.10 Add a `check:lang` npm script running a grep-equivalent Node check across `src/**` for
+      DONE with `noProcessEnv` (confirmed present and functional in the installed 2.5.13, no
+      fallback needed), severity `error`; fires exactly once, on `loadConfig`'s own
+      `env = process.env` default parameter.
+- [x] 9.9 Add `lint`, `lint:fix`, `format`, `check` npm scripts to `package.json`.
+- [x] 9.10 Add a `check:lang` npm script running a grep-equivalent Node check across `src/**` for
       `[áéíóúÁÉÍÓÚñÑüÜ¿¡]` (character-class based, not "any non-ASCII" — emoji are intentional).
-- [ ] 9.11 Update `.github/workflows/tests.yml` to run `npm run check` and `npm run check:lang`.
-- [ ] 9.12 Verify: `node --test && npm run check && npm run check:lang` all pass. `git diff --stat`
-      ≈120 before opening PR 9.
+      Implemented as `scripts/check-lang.js` (new file outside `src/`, allowed).
+- [x] 9.11 Update `.github/workflows/tests.yml` to run `npm run check` and `npm run check:lang`.
+- [x] 9.12 Verify: `node --test && npm run check && npm run check:lang` all pass. `git diff --stat`
+      ≈120 before opening PR 9. Measured (excluding package-lock.json noise): config.yaml 8+/8-,
+      Dockerfile 1+/1-, package.json 15+/3-, src/index.js 14+/7- (config rename + biome-ignore +
+      lint fixes), src/formatter.js 2+/2- (comment reword to keep check:lang clean), src/telegram.js
+      3+/2- (lint fixes only), tests/index.test.js 29+/20-, biome.json + scripts/check-lang.js new
+      (87 lines). `node --test`: 114/114 passing (was 113; net +1 new test after replacing 2
+      comma-parsing tests with 3 list-shape tests). `npm run check`: clean. `npm run check:lang`:
+      clean.
 
 ## Phase 10: README Rewrite (Unit 7 — PR 10)
 
