@@ -364,23 +364,23 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
 
 ## Phase 10: README Rewrite (Unit 7 — PR 10)
 
-- [ ] 10.1 Rewrite `README.md` to describe the env-token/Supervisor-proxy connection model (matching
+- [x] 10.1 Rewrite `README.md` to describe the env-token/Supervisor-proxy connection model (matching
       unit 1a/1b), correcting the stale `http://homeassistant.local:8123/api` and hardcoded-token
       references.
-- [ ] 10.2 Document the allow-list + entity-id membership authorization model, including why
+- [x] 10.2 Document the allow-list + entity-id membership authorization model, including why
       `/chatid` intentionally stays ungated.
-- [ ] 10.3 Correct the Dockerfile command documentation to `npm ci --omit=dev` (matching unit 6) and
+- [x] 10.3 Correct the Dockerfile command documentation to `npm ci --omit=dev` (matching unit 6) and
       the `callService`-is-unused claim (it IS used — every light/cover toggle and camera
       snapshot/record call goes through it).
-- [ ] 10.4 Add the full old→new command migration table (11 commands, no Spanish aliases kept) per
+- [x] 10.4 Add the full old→new command migration table (11 commands, no Spanish aliases kept) per
       the bot-localization spec.
-- [ ] 10.5 Add a dedicated "Breaking change: reconfigure after upgrade" section listing all three
+- [x] 10.5 Add a dedicated "Breaking change: reconfigure after upgrade" section listing all three
       `config.yaml` option renames from unit 6, and a separate note that bot replies are now English
       only with renamed commands (no aliases).
-- [ ] 10.6 Correct the Testing section to state that `tests/telegram.test.js` and `tests/index.test.js`
+- [x] 10.6 Correct the Testing section to state that `tests/telegram.test.js` and `tests/index.test.js`
       import and exercise the real modules (matching units 2a/2b/1b).
-- [ ] 10.7 Document the `OPTIONS_PATH` environment override for local/dev testing.
-- [ ] 10.8 Verify: manual proofread against the actual current source state after PR 9 merges;
+- [x] 10.7 Document the `OPTIONS_PATH` environment override for local/dev testing.
+- [x] 10.8 Verify: manual proofread against the actual current source state after PR 9 merges;
       `git diff --stat` ≈350 before opening PR 10.
 
 ## Binding Implementation Order
