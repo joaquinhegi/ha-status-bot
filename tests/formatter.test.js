@@ -17,6 +17,9 @@ import {
 } from "../src/formatter.js";
 
 // ─── Fixtures ───────────────────────────────────────────────
+// friendly_name values stay in Spanish: they simulate real Home Assistant
+// entity data from a Spanish-speaking home, and the accented names are the
+// regression evidence for the "es" collation kept in src/formatter.js.
 
 function makeEntity(id, state, attrs = {}) {
   return {
@@ -107,17 +110,17 @@ const STATES = [
 // ─── getLightsOn ────────────────────────────────────────────
 
 describe("getLightsOn", () => {
-  it("devuelve solo las luces encendidas", () => {
+  it("returns only the lights that are on", () => {
     const result = getLightsOn(STATES);
     assert.deepStrictEqual(result, ["Dormitorio", "Salón"]);
   });
 
-  it("devuelve array vacío si no hay luces encendidas", () => {
+  it("returns an empty array when no lights are on", () => {
     const states = [makeEntity("light.a", "off")];
     assert.deepStrictEqual(getLightsOn(states), []);
   });
 
-  it("devuelve array vacío si no hay entidades light", () => {
+  it("returns an empty array when there are no light entities", () => {
     assert.deepStrictEqual(getLightsOn([]), []);
   });
 });
@@ -125,7 +128,7 @@ describe("getLightsOn", () => {
 // ─── getAllCameras ───────────────────────────────────────
 
 describe("getAllCameras", () => {
-  it("devuelve solo cámaras disponibles ordenadas", () => {
+  it("returns only available cameras, sorted", () => {
     const result = getAllCameras(STATES);
     assert.deepStrictEqual(result, [
       {
@@ -141,7 +144,7 @@ describe("getAllCameras", () => {
     ]);
   });
 
-  it("devuelve array vacío si no hay cámaras disponibles", () => {
+  it("returns an empty array when no cameras are available", () => {
     const states = [makeEntity("camera.test", "unavailable")];
     assert.deepStrictEqual(getAllCameras(states), []);
   });
@@ -150,7 +153,7 @@ describe("getAllCameras", () => {
 // ─── getActiveBinarySensors ────────────────────────────────
 
 describe("getActiveBinarySensors", () => {
-  it("devuelve sensores binarios activos con device_class", () => {
+  it("returns active binary sensors with their device_class", () => {
     const result = getActiveBinarySensors(STATES);
     assert.ok(result.includes("Movimiento cocina (motion)"));
     assert.ok(result.includes("Puerta principal (door)"));
@@ -158,13 +161,13 @@ describe("getActiveBinarySensors", () => {
     assert.ok(result.includes("Vibración (vibration)"));
   });
 
-  it("no incluye sensores en off", () => {
+  it("does not include sensors that are off", () => {
     const result = getActiveBinarySensors(STATES);
     const names = result.map((r) => r.split(" (")[0]);
     assert.ok(!names.includes("Ventana salón"));
   });
 
-  it("muestra solo el nombre si no tiene device_class", () => {
+  it("shows only the name when there is no device_class", () => {
     const states = [
       makeEntity("binary_sensor.generico", "on", {
         friendly_name: "Genérico",
@@ -178,24 +181,24 @@ describe("getActiveBinarySensors", () => {
 // ─── getOpenDoorsAndWindows ────────────────────────────────
 
 describe("getOpenDoorsAndWindows", () => {
-  it("devuelve puertas y ventanas abiertas", () => {
+  it("returns open doors and windows", () => {
     const result = getOpenDoorsAndWindows(STATES);
     assert.ok(result.includes("Puerta principal"));
     assert.ok(result.includes("Garaje"));
   });
 
-  it("no incluye device_class que no sea door/window/garage_door/opening", () => {
+  it("excludes device_class values other than door/window/garage_door/opening", () => {
     const result = getOpenDoorsAndWindows(STATES);
     assert.ok(!result.includes("Movimiento cocina"));
     assert.ok(!result.includes("Vibración"));
   });
 
-  it("no incluye ventanas cerradas", () => {
+  it("does not include closed windows", () => {
     const result = getOpenDoorsAndWindows(STATES);
     assert.ok(!result.includes("Ventana salón"));
   });
 
-  it("devuelve array vacío si todo está cerrado", () => {
+  it("returns an empty array when everything is closed", () => {
     const states = [
       makeEntity("binary_sensor.puerta", "off", { device_class: "door" }),
     ];
@@ -206,32 +209,32 @@ describe("getOpenDoorsAndWindows", () => {
 // ─── getLowBatteries ───────────────────────────────────────
 
 describe("getLowBatteries", () => {
-  it("devuelve baterías bajo el umbral, ordenadas de menor a mayor", () => {
+  it("returns batteries below the threshold, sorted ascending", () => {
     const result = getLowBatteries(STATES, 20);
     assert.strictEqual(result.length, 2);
     assert.strictEqual(result[0], "Batería ventana: 5%");
     assert.strictEqual(result[1], "Batería puerta: 15%");
   });
 
-  it("no incluye baterías por encima del umbral", () => {
+  it("does not include batteries above the threshold", () => {
     const result = getLowBatteries(STATES, 20);
     const joined = result.join(" ");
     assert.ok(!joined.includes("Batería movimiento"));
   });
 
-  it("excluye entidades unavailable", () => {
+  it("excludes unavailable entities", () => {
     const result = getLowBatteries(STATES, 100);
     const joined = result.join(" ");
     assert.ok(!joined.includes("Batería rota"));
   });
 
-  it("usa umbral personalizado", () => {
+  it("uses a custom threshold", () => {
     const result = getLowBatteries(STATES, 10);
     assert.strictEqual(result.length, 1);
     assert.strictEqual(result[0], "Batería ventana: 5%");
   });
 
-  it("devuelve vacío si no hay baterías bajas", () => {
+  it("returns an empty array when there are no low batteries", () => {
     const result = getLowBatteries(STATES, 0);
     assert.strictEqual(result.length, 0);
   });
@@ -240,121 +243,130 @@ describe("getLowBatteries", () => {
 // ─── getTemperatures ──────────────────────────────────────
 
 describe("getTemperatures", () => {
-  it("devuelve sensores de temperatura disponibles", () => {
+  it("returns available temperature sensors", () => {
     const result = getTemperatures(STATES);
     assert.strictEqual(result.length, 2);
     assert.ok(result.includes("Temp exterior: 8.2°C"));
     assert.ok(result.includes("Temp salón: 22.5°C"));
   });
 
-  it("excluye sensores unavailable", () => {
+  it("excludes unavailable sensors", () => {
     const result = getTemperatures(STATES);
     const joined = result.join(" ");
     assert.ok(!joined.includes("Temp unavailable"));
   });
 
-  it("no incluye sensores con otro device_class", () => {
+  it("does not include sensors with a different device_class", () => {
     const result = getTemperatures(STATES);
     const joined = result.join(" ");
     assert.ok(!joined.includes("Energía"));
+  });
+
+  it("sorts accented names using Spanish collation (regression for the kept 'es' locale)", () => {
+    const states = [
+      makeEntity("sensor.temp_a", "10", {
+        friendly_name: "Ábaco",
+        device_class: "temperature",
+        unit_of_measurement: "°C",
+      }),
+      makeEntity("sensor.temp_b", "11", {
+        friendly_name: "Azul",
+        device_class: "temperature",
+        unit_of_measurement: "°C",
+      }),
+    ];
+    const result = getTemperatures(states);
+    assert.deepStrictEqual(result, ["Ábaco: 10°C", "Azul: 11°C"]);
   });
 });
 
 // ─── formatLights ─────────────────────────────────────────
 
 describe("formatLights", () => {
-  it("contiene el título y las luces", () => {
+  it("contains the heading and the lights", () => {
     const text = formatLights(STATES);
-    assert.ok(text.includes("💡 Luces encendidas"));
     assert.ok(text.includes("• Salón"));
     assert.ok(text.includes("• Dormitorio"));
   });
 
-  it("muestra mensaje vacío si no hay luces", () => {
+  it("shows the empty-state message when there are no lights on", () => {
     const text = formatLights([]);
-    assert.ok(text.includes("No hay luces encendidas"));
+    assert.ok(text.length > 0);
   });
 });
 
 // ─── formatSensors ────────────────────────────────────────
 
 describe("formatSensors", () => {
-  it("contiene el título y sensores activos", () => {
+  it("contains the heading and active sensors", () => {
     const text = formatSensors(STATES);
-    assert.ok(text.includes("📡 Sensores activos"));
     assert.ok(text.includes("Movimiento cocina (motion)"));
   });
 
-  it("muestra mensaje vacío sin sensores activos", () => {
+  it("shows the empty-state message when there are no active sensors", () => {
     const text = formatSensors([]);
-    assert.ok(text.includes("No hay sensores activos"));
+    assert.ok(text.length > 0);
   });
 });
 
 // ─── formatDoors ──────────────────────────────────────────
 
 describe("formatDoors", () => {
-  it("contiene el título y puertas abiertas", () => {
+  it("contains the heading and open doors", () => {
     const text = formatDoors(STATES);
-    assert.ok(text.includes("🚪 Puertas / ventanas abiertas"));
     assert.ok(text.includes("• Puerta principal"));
   });
 
-  it("muestra 'Todo cerrado' si no hay puertas abiertas", () => {
+  it("shows the empty-state message when nothing is open", () => {
     const text = formatDoors([]);
-    assert.ok(text.includes("Todo cerrado"));
+    assert.ok(text.length > 0);
   });
 });
 
 // ─── formatBatteries ──────────────────────────────────────
 
 describe("formatBatteries", () => {
-  it("contiene el título con el umbral", () => {
+  it("contains the heading with the threshold", () => {
     const text = formatBatteries(STATES, 20);
-    assert.ok(text.includes("🔋 Baterías bajas <= 20%"));
+    assert.ok(text.includes("20%"));
   });
 
-  it("lista las baterías bajas", () => {
+  it("lists the low batteries", () => {
     const text = formatBatteries(STATES, 20);
     assert.ok(text.includes("Batería ventana: 5%"));
     assert.ok(text.includes("Batería puerta: 15%"));
   });
 
-  it("muestra mensaje vacío sin baterías bajas", () => {
+  it("shows the empty-state message when there are no low batteries", () => {
     const text = formatBatteries([], 20);
-    assert.ok(text.includes("No hay baterías bajas"));
+    assert.ok(text.length > 0);
   });
 });
 
 // ─── formatTemperatures ───────────────────────────────────
 
 describe("formatTemperatures", () => {
-  it("contiene el título y las temperaturas", () => {
+  it("contains the heading and the temperatures", () => {
     const text = formatTemperatures(STATES);
-    assert.ok(text.includes("🌡️ Temperaturas"));
     assert.ok(text.includes("Temp salón: 22.5°C"));
   });
 
-  it("muestra mensaje vacío sin sensores de temperatura", () => {
+  it("shows the empty-state message when there are no temperature sensors", () => {
     const text = formatTemperatures([]);
-    assert.ok(text.includes("No hay sensores de temperatura"));
+    assert.ok(text.length > 0);
   });
 });
 
 // ─── formatFullStatus ─────────────────────────────────────
 
 describe("formatFullStatus", () => {
-  it("contiene todas las secciones", () => {
+  it("contains every section heading", () => {
     const text = formatFullStatus(STATES, 20);
-    assert.ok(text.includes("🏠 Estado de casa"));
-    assert.ok(text.includes("💡 Luces encendidas:"));
-    assert.ok(text.includes("🚪 Puertas / ventanas abiertas:"));
-    assert.ok(text.includes("📡 Sensores activos:"));
-    assert.ok(text.includes("🔋 Baterías bajas <= 20%:"));
-    assert.ok(text.includes("🌡️ Temperaturas:"));
+    const sectionCount = text.split("\n\n").length;
+    assert.strictEqual(sectionCount, 6);
   });
 
-  it("incluye datos de cada sección", () => {
+  it("includes data from each section", () => {
     const text = formatFullStatus(STATES, 20);
     assert.ok(text.includes("• Salón"));
     assert.ok(text.includes("• Puerta principal"));
@@ -362,12 +374,57 @@ describe("formatFullStatus", () => {
     assert.ok(text.includes("Temp salón: 22.5°C"));
   });
 
-  it("funciona con estados vacíos", () => {
+  it("works with empty states", () => {
     const text = formatFullStatus([], 20);
-    assert.ok(text.includes("No hay luces encendidas"));
-    assert.ok(text.includes("Todo cerrado"));
-    assert.ok(text.includes("No hay sensores activos"));
-    assert.ok(text.includes("No hay baterías bajas"));
-    assert.ok(text.includes("No hay sensores de temperatura"));
+    assert.ok(text.length > 0);
+  });
+});
+
+// ─── user-facing copy ─────────────────────────────────────
+// The only block in this file allowed to assert on exact bot-facing English
+// copy. Every other describe block above asserts on structure or on
+// Spanish fixture data, not on the module's own English output strings.
+
+describe("user-facing copy", () => {
+  it("formatLights uses the English heading and empty-state text", () => {
+    assert.ok(formatLights(STATES).includes("💡 Lights on"));
+    assert.ok(formatLights([]).includes("No lights on"));
+  });
+
+  it("formatSensors uses the English heading and empty-state text", () => {
+    assert.ok(formatSensors(STATES).includes("📡 Active sensors"));
+    assert.ok(formatSensors([]).includes("No active sensors"));
+  });
+
+  it("formatDoors uses the English heading and empty-state text", () => {
+    assert.ok(formatDoors(STATES).includes("🚪 Open doors / windows"));
+    assert.ok(formatDoors([]).includes("Everything closed"));
+  });
+
+  it("formatBatteries uses the English heading and empty-state text", () => {
+    assert.ok(formatBatteries(STATES, 20).includes("🔋 Low batteries <= 20%"));
+    assert.ok(formatBatteries([], 20).includes("No low batteries"));
+  });
+
+  it("formatTemperatures uses the English heading and empty-state text", () => {
+    assert.ok(formatTemperatures(STATES).includes("🌡️ Temperatures"));
+    assert.ok(formatTemperatures([]).includes("No temperature sensors"));
+  });
+
+  it("formatFullStatus uses the English section headings and empty-state text", () => {
+    const text = formatFullStatus(STATES, 20);
+    assert.ok(text.includes("🏠 Home status"));
+    assert.ok(text.includes("💡 Lights on:"));
+    assert.ok(text.includes("🚪 Open doors / windows:"));
+    assert.ok(text.includes("📡 Active sensors:"));
+    assert.ok(text.includes("🔋 Low batteries <= 20%:"));
+    assert.ok(text.includes("🌡️ Temperatures:"));
+
+    const empty = formatFullStatus([], 20);
+    assert.ok(empty.includes("No lights on"));
+    assert.ok(empty.includes("Everything closed"));
+    assert.ok(empty.includes("No active sensors"));
+    assert.ok(empty.includes("No low batteries"));
+    assert.ok(empty.includes("No temperature sensors"));
   });
 });

@@ -6,11 +6,16 @@ function isUnavailable(entity) {
   return entity.state === "unavailable" || entity.state === "unknown";
 }
 
+// Collation is matched to the Spanish-language entity data this bot reads
+// from a Spanish-speaking Home Assistant instance (e.g. accented names like
+// "Salón"), not to the interface language. Keep "es" even after the
+// English-copy normalization below — switching to a locale-neutral compare
+// would silently change sort order for those names.
 function byFriendlyName(a, b) {
   return friendlyName(a).localeCompare(friendlyName(b), "es");
 }
 
-function bulletList(items, emptyText = "Ninguno") {
+function bulletList(items, emptyText = "None") {
   if (!items.length) {
     return `• ${emptyText}`;
   }
@@ -120,7 +125,7 @@ export function getTemperatures(states) {
       value: e.state,
       unit: e.attributes?.unit_of_measurement || "°C",
     }))
-    .sort((a, b) => a.name.localeCompare(b.name, "es"))
+    .sort((a, b) => a.name.localeCompare(b.name, "es")) // See byFriendlyName above: "es" collation is intentional.
     .map((e) => `${e.name}: ${e.value}${e.unit}`);
 }
 
@@ -128,9 +133,9 @@ export function formatLights(states) {
   const lightsOn = getLightsOn(states);
 
   return [
-    "💡 Luces encendidas",
+    "💡 Lights on",
     "",
-    bulletList(lightsOn, "No hay luces encendidas"),
+    bulletList(lightsOn, "No lights on"),
   ].join("\n");
 }
 
@@ -138,9 +143,9 @@ export function formatSensors(states) {
   const sensors = getActiveBinarySensors(states);
 
   return [
-    "📡 Sensores activos",
+    "📡 Active sensors",
     "",
-    bulletList(sensors, "No hay sensores activos"),
+    bulletList(sensors, "No active sensors"),
   ].join("\n");
 }
 
@@ -148,9 +153,9 @@ export function formatDoors(states) {
   const doors = getOpenDoorsAndWindows(states);
 
   return [
-    "🚪 Puertas / ventanas abiertas",
+    "🚪 Open doors / windows",
     "",
-    bulletList(doors, "Todo cerrado"),
+    bulletList(doors, "Everything closed"),
   ].join("\n");
 }
 
@@ -158,9 +163,9 @@ export function formatBatteries(states, threshold) {
   const batteries = getLowBatteries(states, threshold);
 
   return [
-    `🔋 Baterías bajas <= ${threshold}%`,
+    `🔋 Low batteries <= ${threshold}%`,
     "",
-    bulletList(batteries, "No hay baterías bajas"),
+    bulletList(batteries, "No low batteries"),
   ].join("\n");
 }
 
@@ -168,9 +173,9 @@ export function formatTemperatures(states) {
   const temps = getTemperatures(states);
 
   return [
-    "🌡️ Temperaturas",
+    "🌡️ Temperatures",
     "",
-    bulletList(temps, "No hay sensores de temperatura"),
+    bulletList(temps, "No temperature sensors"),
   ].join("\n");
 }
 
@@ -182,21 +187,21 @@ export function formatFullStatus(states, lowBatteryThreshold) {
   const temperatures = getTemperatures(states);
 
   return [
-    "🏠 Estado de casa",
+    "🏠 Home status",
     "",
-    "💡 Luces encendidas:",
-    bulletList(lightsOn, "No hay luces encendidas"),
+    "💡 Lights on:",
+    bulletList(lightsOn, "No lights on"),
     "",
-    "🚪 Puertas / ventanas abiertas:",
-    bulletList(openDoors, "Todo cerrado"),
+    "🚪 Open doors / windows:",
+    bulletList(openDoors, "Everything closed"),
     "",
-    "📡 Sensores activos:",
-    bulletList(activeSensors, "No hay sensores activos"),
+    "📡 Active sensors:",
+    bulletList(activeSensors, "No active sensors"),
     "",
-    `🔋 Baterías bajas <= ${lowBatteryThreshold}%:`,
-    bulletList(lowBatteries, "No hay baterías bajas"),
+    `🔋 Low batteries <= ${lowBatteryThreshold}%:`,
+    bulletList(lowBatteries, "No low batteries"),
     "",
-    "🌡️ Temperaturas:",
-    bulletList(temperatures, "No hay sensores de temperatura"),
+    "🌡️ Temperatures:",
+    bulletList(temperatures, "No temperature sensors"),
   ].join("\n");
 }
