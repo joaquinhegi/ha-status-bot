@@ -286,33 +286,43 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
 
 ## Phase 8: English telegram.js Copy + Command Renames (Unit 5b — PR 8)
 
-- [ ] 8.1 Rename the 8 `onText` regexes per the mapping table: `/\/estado/`→`/\/status/`,
+- [x] 8.1 Rename the 8 `onText` regexes per the mapping table: `/\/estado/`→`/\/status/`,
       `/\/luces/`→`/\/lights/`, `/\/sensores/`→`/\/sensors/`, `/\/puertas/`→`/\/doors/`,
       `/\/bateria/`→`/\/battery/`, `/\/temp/`→`/\/temperature/`, `/\/persianas/`→`/\/covers/`,
       `/\/camaras/`→`/\/cameras/`. `/start`, `/help`, `/chatid` regexes are unchanged. No Spanish
-      alias is registered for any renamed command.
-- [ ] 8.2 Update the `/start` command list (`:212-223`) and `/help` command list (`:232-241`) to the
-      new English command names and English descriptive text.
-- [ ] 8.3 Translate every remaining Spanish literal/template literal in `src/telegram.js` to English:
+      alias is registered for any renamed command. — DONE.
+- [x] 8.2 Update the `/start` command list (`:212-223`) and `/help` command list (`:232-241`) to the
+      new English command names and English descriptive text. — DONE.
+- [x] 8.3 Translate every remaining Spanish literal/template literal in `src/telegram.js` to English:
       module helpers (`:42-158` — camera labels, media-wait errors, callback-expired warning,
       photo/video captions), `handleCommand` + auth-denial + error copy (`:177-203`), `/luces`/
       `/persianas`/`/camaras` bodies (`:258-297,321-390`), `callback_query` action replies and
       final-refresh log (`:392-574,580`). Touch ONLY string literals, template literals, comments, and
       the regexes from 8.1 — if a hunk changes a condition, argument list, or control flow, move it to
       unit 3, 4, or its own fix-forward commit before this PR opens (compensating control from design).
-- [ ] 8.4 MEASURE before writing test assertions: run `git diff --stat` on the production-only diff
+      — DONE. Verified with `rg` for remaining accented/Spanish tokens in `src/telegram.js`: none found.
+- [x] 8.4 MEASURE before writing test assertions: run `git diff --stat` on the production-only diff
       from 8.1-8.3 and confirm it is ≈226 changed lines. If over 400, invoke the 5b-1/5b-2 contingency
-      split documented above instead of continuing this unit as one PR.
-- [ ] 8.5 In `tests/telegram.test.js`, confine every exact-copy assertion to one new
+      split documented above instead of continuing this unit as one PR. — MEASURED: `src/telegram.js`
+      114+/114- = 228 changed lines. Under budget, no split needed.
+- [x] 8.5 In `tests/telegram.test.js`, confine every exact-copy assertion to one new
       `describe("user-facing copy", () => { ... })` block — reply text, button labels, toast text.
       Every other existing assertion in the file stays structure-based (from units 2a/2b/3) and needs
-      NO edit for this unit, because it never asserted on copy.
-- [ ] 8.6 Update command-name assertions in the structure-based tests (e.g. `onText` regex matching,
-      `handleCommand` dispatch by new command) to the renamed commands from 8.1.
-- [ ] 8.7 Verify: `node --test tests/telegram.test.js`; run `git diff --stat` on the full unit
+      NO edit for this unit, because it never asserted on copy. — DONE: only the pre-existing
+      `describe("user-facing copy", ...)` block's Spanish-authorization assertion was translated;
+      no other block gained a copy assertion.
+- [x] 8.6 Update command-name assertions in the structure-based tests (e.g. `onText` regex matching,
+      `handleCommand` dispatch by new command) to the renamed commands from 8.1. — DONE: all
+      `bot.emitText("/estado"|"/sensores"|"/puertas"|"/bateria"|"/temp"|"/luces"|"/persianas"|"/camaras", ...)`
+      call sites updated to the new English command strings.
+- [x] 8.7 Verify: `node --test tests/telegram.test.js`; run `git diff --stat` on the full unit
       (production + test) and confirm it is ≈316. Confirm no hunk outside `describe("user-facing
       copy")` contains a translated string compared with `assert.strictEqual`/`assert.match` against
-      literal Spanish or English sentence text.
+      literal Spanish or English sentence text. — MEASURED: `git diff --numstat HEAD -- src/ tests/` =
+      264 changed lines total (`src/telegram.js` 114+/114- = 228, `tests/telegram.test.js` 18+/18- = 36).
+      Under the ≈316 estimate and well under the 400 budget — no split, no size:exception needed.
+      Full suite: `node --test` → 113/113 passing (unchanged from before this unit), zero regressions.
+      Committed at `db7d57e` on `test/telegram-seam-and-coverage`.
 
 ## Phase 9: config.yaml Rename, Dockerfile, package.json, Biome (Unit 6 — PR 9)
 
