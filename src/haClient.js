@@ -1,3 +1,8 @@
+// Single source of truth for the camera clip length, shared with
+// src/telegram.js so the recorded duration and every user-facing string that
+// mentions it can never drift apart.
+export const CAMERA_CLIP_DURATION_SECONDS = 30;
+
 const HA_RETRY = Object.freeze({
   ATTEMPTS: 3,
   DELAY_MS: 1200,
@@ -216,7 +221,7 @@ export function createHomeAssistantClient({
     }
   }
 
-  async function recordCameraClip(entityId, duration = 30) {
+  async function recordCameraClip(entityId, duration = CAMERA_CLIP_DURATION_SECONDS) {
     const safeEntityId = entityId.replace(/[^a-zA-Z0-9_]/g, "_");
     const fileName = `ha_status_bot_${safeEntityId}_${now()}.mp4`;
     const internalPath = `/media/${fileName}`;

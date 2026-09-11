@@ -10,6 +10,7 @@ import {
   getAllCovers,
   getAllLights,
 } from "./formatter.js";
+import { CAMERA_CLIP_DURATION_SECONDS } from "./haClient.js";
 
 function isAllowed(chatId, allowedChatIds) {
   if (!allowedChatIds.length) {
@@ -86,8 +87,8 @@ function cameraOptionsKeyboard(entityId) {
     ],
     [
       {
-        text: "🎥 Send video (30s)",
-        callback_data: `camera_vid30:${entityId}`,
+        text: `🎥 Send video (${CAMERA_CLIP_DURATION_SECONDS}s)`,
+        callback_data: `camera_vid${CAMERA_CLIP_DURATION_SECONDS}:${entityId}`,
       },
     ],
     [
@@ -202,7 +203,7 @@ const OFFERED_ENTITY_SELECTORS = {
   cover_close: getAllCovers,
   camera_pick: getAllCameras,
   camera_img: getAllCameras,
-  camera_vid30: getAllCameras,
+  [`camera_vid${CAMERA_CLIP_DURATION_SECONDS}`]: getAllCameras,
 };
 
 // Authorizes a callback_query entity_id against the domain's currently valid
@@ -538,26 +539,26 @@ export function createTelegramBot({
           snapshot.contentType,
         );
         return;
-      } else if (action === "camera_vid30") {
-        await answer("Recording video (30s)...");
+      } else if (action === `camera_vid${CAMERA_CLIP_DURATION_SECONDS}`) {
+        await answer(`Recording video (${CAMERA_CLIP_DURATION_SECONDS}s)...`);
 
         const selected = gate.offered;
 
         await bot.sendMessage(
           chatId,
-          `🎥 Recording 30 seconds of ${selected?.name || entityId}...`,
+          `🎥 Recording ${CAMERA_CLIP_DURATION_SECONDS} seconds of ${selected?.name || entityId}...`,
         );
 
         try {
-          const clip = await ha.recordCameraClip(entityId, 30);
+          const clip = await ha.recordCameraClip(entityId, CAMERA_CLIP_DURATION_SECONDS);
           const video = await waitForMediaFile(ha, clip.publicPath, 90000, 3000);
 
           await sendVideoWithFallback(
             bot,
             chatId,
             video.buffer,
-            `🎥 ${selected?.name || entityId} (30s)`,
-            `${entityId.replace(/\W+/g, "_")}_30s.mp4`,
+            `🎥 ${selected?.name || entityId} (${CAMERA_CLIP_DURATION_SECONDS}s)`,
+            `${entityId.replace(/\W+/g, "_")}_${CAMERA_CLIP_DURATION_SECONDS}s.mp4`,
             video.contentType,
           );
         } catch (recordError) {
