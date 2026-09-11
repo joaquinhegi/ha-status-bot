@@ -271,6 +271,29 @@ function resolveOfferedEntity(action, entityId, states) {
   return { requiresEntity: true, offered };
 }
 
+// Single source of truth for the 2.0.0 Spanish→English command rename. The
+// retired-command listener below builds both its matcher and its reply text
+// from this one map, so the two cannot drift apart, and so a new retirement
+// only ever needs an entry added here.
+const RETIRED_COMMAND_MIGRATIONS = {
+  estado: "status",
+  luces: "lights",
+  sensores: "sensors",
+  puertas: "doors",
+  bateria: "battery",
+  temp: "temperature",
+  persianas: "covers",
+  camaras: "cameras",
+};
+
+// Anchored so a retired command can never match as a mere substring of a
+// live one — e.g. an unanchored /temp would also fire on /temperature. `\b`
+// after the command name additionally stops it from matching a live command
+// that happens to start with the same letters.
+const RETIRED_COMMAND_PATTERN = new RegExp(
+  `^/(${Object.keys(RETIRED_COMMAND_MIGRATIONS).join("|")})\\b`,
+);
+
 export function createTelegramBot({
   token,
   allowedChatIds,
@@ -460,6 +483,39 @@ export function createTelegramBot({
       emptyMessage: "📷 No cameras available.",
       listMessage: "📷 Select a camera:",
     });
+  });
+
+  // Replies ONLY to the eight retired Spanish commands named in
+  // RETIRED_COMMAND_MIGRATIONS, telling the user their exact replacement.
+  //
+  // Deliberate scope limit — do NOT turn this into a general catch-all for
+  // arbitrary text. A bot that answers every message it receives is unusable
+  // in a group chat: it would reply to normal conversation between people
+  // that never intended to address it. Only these eight literal commands
+  // get a reply; every other message still gets none.
+  //
+  // Gated by the allow-list like every other command (unlike /chatid, which
+  // is deliberately ungated so a brand-new user can discover their chat_id).
+  // These are not brand-new users: they already typed a command that worked
+  // before 2.0.0, so an authorized chat still gets guided to the rename. An
+  // unauthorized chat gets the same "Not authorized" answer as any other
+  // command instead of a free map of the bot's renamed command surface.
+  bot.onText(RETIRED_COMMAND_PATTERN, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const oldCommand = match[1];
+    const newCommand = RETIRED_COMMAND_MIGRATIONS[oldCommand];
+    console.log(`[Telegram] Retired command /${oldCommand} from chat_id=${chatId}`);
+
+    if (!isAllowed(chatId, allowedChatIds)) {
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
+      return;
+    }
+
+    await bot.sendMessage(
+      chatId,
+      `/${oldCommand} was renamed in 2.0.0 — use /${newCommand} instead.`,
+    );
   });
 
   bot.on("callback_query", async (query) => {

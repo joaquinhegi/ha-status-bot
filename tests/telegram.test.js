@@ -739,33 +739,70 @@ describe("createTelegramBot entity authorization gate", () => {
 });
 
 describe("createTelegramBot retired Spanish commands", () => {
-  // The 2.0.0 rename kept no Spanish aliases. There is also no catch-all
-  // message handler, so a retired command produces no reply at all rather
-  // than an unknown-command message. Pinning that here keeps a later change
-  // from quietly reviving an alias, and documents the silence as deliberate.
-  const RETIRED_COMMANDS = [
-    "/estado",
-    "/luces",
-    "/sensores",
-    "/puertas",
-    "/bateria",
-    "/temp",
-    "/persianas",
-    "/camaras",
-  ];
+  // The 2.0.0 rename kept no Spanish aliases. Each retired command now gets a
+  // migration reply naming its exact English replacement, instead of the
+  // silence the very first 2.0.0 cut shipped with. It still calls no Home
+  // Assistant service: only a real command runs a flow.
+  const RETIRED_COMMAND_REPLACEMENTS = {
+    "/estado": "/status",
+    "/luces": "/lights",
+    "/sensores": "/sensors",
+    "/puertas": "/doors",
+    "/bateria": "/battery",
+    "/temp": "/temperature",
+    "/persianas": "/covers",
+    "/camaras": "/cameras",
+  };
 
-  for (const command of RETIRED_COMMANDS) {
-    it(`ignores ${command} entirely, calling no HA service and sending no reply`, async () => {
+  for (const [command, replacement] of Object.entries(RETIRED_COMMAND_REPLACEMENTS)) {
+    it(`replies to ${command} naming ${replacement} as its replacement, calling no HA service`, async () => {
       const lights = [makeLightEntity("kitchen")];
       const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
 
       await bot.emitText(command, 42);
 
-      assert.strictEqual(bot.sentMessages.length, 0);
+      assert.strictEqual(bot.sentMessages.length, 1);
+      assert.strictEqual(bot.sentMessages[0].chatId, 42);
+      assert.match(bot.sentMessages[0].text, new RegExp(replacement.replace("/", "\\/")));
       assert.strictEqual(ha.calls.getStates, 0);
       assert.strictEqual(ha.calls.callService.length, 0);
     });
   }
+
+  it("gates the migration reply by the allow-list, like every other command", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: ["1"] });
+
+    await bot.emitText("/luces", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+    assert.doesNotMatch(bot.sentMessages[0].text, /\/lights/);
+    assert.strictEqual(ha.calls.getStates, 0);
+  });
+
+  it("still replies with the migration text once the chat is allowed", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["1"] });
+
+    await bot.emitText("/luces", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.match(bot.sentMessages[0].text, /\/lights/);
+  });
+
+  // Regression guard for the highest-risk part of this feature: bot.onText
+  // matching is unanchored, and "/temp" is a substring of "/temperature".
+  // An unanchored retired-command pattern would fire on both, sending the
+  // migration notice alongside (or instead of) the real temperature reply.
+  it("does not intercept /temperature: only the real temperature flow replies", async () => {
+    const states = [makeTemperatureSensorEntity("living_room", 21.5)];
+    const { bot, ha } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitText("/temperature", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.doesNotMatch(bot.sentMessages[0].text, /renamed/);
+  });
 });
 
 describe("createTelegramBot /start and /help gating", () => {

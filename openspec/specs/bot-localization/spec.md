@@ -28,7 +28,7 @@ All `console.log`/`warn`/`error` strings and code comments in `src/**` MUST be E
 
 ### Requirement: Commands Are Renamed to English With No Aliases
 
-Every bot command MUST be renamed per the table below, with no Spanish alias registered for any of them.
+Every bot command MUST be renamed per the table below, with no Spanish alias registered for any of them. Each of the eight retired Spanish commands MUST instead receive a migration reply naming its exact English replacement — see the "Retired Spanish command" scenario below.
 
 | Old (Spanish) | New (English) |
 |---|---|
@@ -49,18 +49,33 @@ Rationale: the new names match `src/formatter.js`'s existing English function na
 #### Scenario: Old Spanish command is no longer recognized
 
 - GIVEN the bot is running with the renamed commands
-- WHEN a chat sends `/luces`
-- THEN the bot does not run the lights flow, calls no Home Assistant service, and sends no reply at all
+- WHEN an allowed chat sends `/luces`
+- THEN the bot does not run the lights flow, calls no Home Assistant service, and instead
+  replies that `/luces` was renamed in 2.0.0 and that `/lights` is its replacement
 
-> Amended after verification. The original clause said the command "falls through to
-> unknown-command handling", which describes behavior this add-on does not have:
-> `src/telegram.js` registers no catch-all `bot.on("message")` handler, so a retired
-> command produces silence rather than an unknown-command reply. The scenario now
-> states the behavior that actually exists and that the suite pins.
+> Amended twice. First, after verification, to say the command "sends no reply at all"
+> instead of the originally-drafted "falls through to unknown-command handling", since
+> `src/telegram.js` registered no catch-all `bot.on("message")` handler at the time.
 >
-> Known consequence, deliberately left for a later change: a user who types a retired
-> command gets no feedback and no pointer to its new name. Adding a catch-all that
-> replies with the rename mapping would turn that silence into a guided migration.
+> Second, now that the migration catch-all described below exists: a retired command is
+> no longer silent. It matches only the eight retired command names — anchored so, for
+> example, the retired `/temp` pattern cannot also match the live `/temperature` — and
+> is gated by the allow-list like every other command, so an unauthorized chat gets the
+> standard "not authorized" answer rather than a map of the renamed command surface. See
+> the "Retired Spanish command" scenario below for the authorized case and
+> `RETIRED_COMMAND_MIGRATIONS` in `src/telegram.js` for the exact mapping. This remains a
+> deliberate, narrow exception: the bot still has no general catch-all for arbitrary text.
+
+#### Scenario: Retired Spanish command names its replacement
+
+- GIVEN the bot is running with the renamed commands
+- WHEN an allowed chat sends any of the eight retired commands (`/estado`, `/luces`,
+  `/sensores`, `/puertas`, `/bateria`, `/temp`, `/persianas`, `/camaras`)
+- THEN the bot calls no Home Assistant service and replies with the command's exact
+  English replacement, naming the 2.0.0 rename
+- AND WHEN a chat absent from a non-empty `allowed_chat_ids` sends a retired command
+- THEN it receives the same "not authorized" reply any other gated command would send,
+  not the migration text
 
 #### Scenario: New English command runs the flow
 

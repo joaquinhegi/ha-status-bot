@@ -164,9 +164,10 @@ the old names — old commands and old option names simply stop being recognized
 | `/persianas` | `/covers` |
 | `/camaras` | `/cameras` |
 
-`/start`, `/help`, and `/chatid` keep their names. After upgrading, the old commands are not
-recognized at all — the bot does not reply to them, it simply ignores the message. Update any
-saved shortcuts, bot menus, or scripts that send the old command text.
+`/start`, `/help`, and `/chatid` keep their names. After upgrading, the old commands no longer run
+their old flow — instead, each one gets a reply telling you it was renamed in 2.0.0 and naming its
+exact replacement (gated by `allowed_chat_ids` like every other command). Update any saved
+shortcuts, bot menus, or scripts that send the old command text.
 
 ### 2. Add-on options renamed
 
