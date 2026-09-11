@@ -48,7 +48,12 @@ describe("loadConfig", () => {
       readFile: fakeReadFile(makeOptions()),
     });
 
-    assert.strictEqual(config.homeAssistant.baseUrl, HA_DEFAULT_BASE_URL);
+    // Pinned to the literal on purpose. Comparing against HA_DEFAULT_BASE_URL
+    // would hold for any value the constant takes, including the
+    // http://homeassistant.local:8123/api default this change was created to
+    // remove. An add-on must reach Home Assistant through the Supervisor proxy.
+    assert.strictEqual(config.homeAssistant.baseUrl, "http://supervisor/core/api");
+    assert.strictEqual(HA_DEFAULT_BASE_URL, "http://supervisor/core/api");
   });
 
   it("honours HA_BASE_URL override for non-Supervisor deployments", () => {

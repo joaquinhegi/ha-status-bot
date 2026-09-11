@@ -136,7 +136,7 @@ Do not pre-apply this split speculatively — measure first (see 8.4 below).
       `describe("user-facing copy")` block, added later.
 - [x] 3.5 GREEN: `node --test tests/telegram.test.js` passes against real `createTelegramBot`
       (13/13 new tests green; 74/74 full suite green).
-- [ ] 3.6 Verify: `git diff --stat`; if this unit measures over 400, stop and report the measured
+- [x] 3.6 Verify: `git diff --stat`; if this unit measures over 400, stop and report the measured
       number back to the user before opening PR 3 (no pre-approved fallback split exists for 2a). —
       **TRIGGERED**: measured 423 changed lines (362+/61-: `src/telegram.js` 10+/7-,
       `tests/helpers/fakeTelegramBot.js` 102+/0- new file, `tests/telegram.test.js` 250+/54-). Over the
