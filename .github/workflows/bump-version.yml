@@ -31,12 +31,42 @@ jobs:
             exit 1
           fi
 
+      # Without this the run reaches `git commit`, finds an unchanged tree, and
+      # dies on "nothing to commit" with exit code 1 — an error that says
+      # nothing about what the operator actually got wrong.
+      - name: Reject a version that is already declared
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          CURRENT=$(sed -n 's/^version: "\(.*\)"$/\1/p' config.yaml)
+
+          if [ "$CURRENT" = "$VERSION" ]; then
+            echo "config.yaml already declares $VERSION, so there is nothing to bump."
+            echo "The release tag is created by the Create Release Tag workflow when"
+            echo "config.yaml reaches main — it does not need this workflow."
+            echo "Run this workflow with the NEXT version instead."
+            exit 1
+          fi
+
+          echo "Bumping $CURRENT to $VERSION"
+
       - name: Update the version in package.json and config.yaml
         env:
           VERSION: ${{ inputs.version }}
         run: |
           sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
           sed -i "s/^version: \".*\"/version: \"$VERSION\"/" config.yaml
+
+          # Guard against the file format drifting away from what the patterns
+          # above expect: a silent no-op here would fail later as the same
+          # opaque "nothing to commit".
+          if ! git diff --quiet -- package.json config.yaml; then
+            exit 0
+          fi
+
+          echo "Neither package.json nor config.yaml changed."
+          echo "Their version fields no longer match the patterns this workflow edits."
+          exit 1
 
       - name: Open the bump pull request
         env:
