@@ -1,13 +1,21 @@
-name: Create Tag on Bump Merge
+name: Create Release Tag
+
+# Tags whatever version config.yaml declares once it reaches main.
+#
+# The previous trigger fired on a merged pull request whose branch started with
+# "bump/v" and derived the tag from that branch name. Any version bumped by hand
+# therefore shipped untagged, and the tag pointed at the pull request's merge ref
+# rather than the commit on main. Reading the version from config.yaml covers
+# both routes and always tags the commit that actually landed.
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [main]
+    paths:
+      - "config.yaml"
 
 jobs:
   create-tag:
-    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'bump/v')
     runs-on: ubuntu-latest
 
     permissions:
@@ -15,13 +23,30 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Extraer versión y crear tag
+      - name: Read the declared version
+        id: version
         run: |
-          VERSION="${{ github.event.pull_request.head.ref }}"
-          VERSION="${VERSION#bump/}"
+          VERSION=$(sed -n 's/^version: "\(.*\)"$/\1/p' config.yaml)
+          if [ -z "$VERSION" ]; then
+            echo "config.yaml declares no version"
+            exit 1
+          fi
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create the tag when it does not exist yet
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "$TAG already exists, nothing to do"
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -a "$VERSION" -m "Release $VERSION"
-          git push origin "$VERSION"
-          echo "✅ Tag $VERSION creado"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+          echo "Created $TAG"
