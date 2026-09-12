@@ -1,4 +1,26 @@
-export function createHomeAssistantClient({ baseUrl, token }) {
+// Single source of truth for the camera clip length, shared with
+// src/telegram.js so the recorded duration and every user-facing string that
+// mentions it can never drift apart.
+export const CAMERA_CLIP_DURATION_SECONDS = 30;
+
+const HA_RETRY = Object.freeze({
+  ATTEMPTS: 3,
+  DELAY_MS: 1200,
+  SNAPSHOT_COOLDOWN_MS: 5 * 60 * 1000,
+});
+
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function createHomeAssistantClient({
+  baseUrl,
+  token,
+  fetchImpl = fetch,
+  sleep = defaultSleep,
+  now = Date.now,
+  logger = console,
+}) {
   const rootUrl = baseUrl.replace(/\/api\/?$/, "");
   const cameraProxyUnavailable = new Set();
   const cameraSnapshotUnavailableUntil = new Map();
@@ -14,10 +36,10 @@ export function createHomeAssistantClient({ baseUrl, token }) {
 
   async function request(path, options = {}) {
     const method = options.method || "GET";
-    console.log(`[HA API] ${method} ${path}`);
-    const start = Date.now();
+    logger.log(`[HA API] ${method} ${path}`);
+    const start = now();
 
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetchImpl(`${baseUrl}${path}`, {
       ...options,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -26,25 +48,25 @@ export function createHomeAssistantClient({ baseUrl, token }) {
       },
     });
 
-    const elapsed = Date.now() - start;
+    const elapsed = now() - start;
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      console.error(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
+      logger.error(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
       throw buildApiError(method, path, response.status, body);
     }
 
-    console.log(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
+    logger.log(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
     return response.json();
   }
 
   async function requestBinary(path, options = {}, useApiBase = true) {
     const method = options.method || "GET";
     const url = `${useApiBase ? baseUrl : rootUrl}${path}`;
-    console.log(`[HA API] ${method} ${path}`);
-    const start = Date.now();
+    logger.log(`[HA API] ${method} ${path}`);
+    const start = now();
 
-    const response = await fetch(url, {
+    const response = await fetchImpl(url, {
       ...options,
       headers: {
         Authorization: `Bearer ${token}`,
@@ -52,26 +74,82 @@ export function createHomeAssistantClient({ baseUrl, token }) {
       },
     });
 
-    const elapsed = Date.now() - start;
+    const elapsed = now() - start;
 
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      console.error(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
+      logger.error(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
       throw buildApiError(method, path, response.status, body);
     }
 
     const arrayBuffer = await response.arrayBuffer();
     const contentType = response.headers.get("content-type") || "application/octet-stream";
 
-    console.log(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
+    logger.log(`[HA API] ${method} ${path} → ${response.status} (${elapsed}ms)`);
     return {
       buffer: Buffer.from(arrayBuffer),
       contentType,
     };
   }
 
-  function sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  // Tries each candidate `{ path, useApiBase }` in order via requestBinary,
+  // returning the first response with a non-empty buffer. Continues past
+  // both an empty-but-ok response and a thrown request error, unifying the
+  // camera-snapshot proxy fallback chain and the media-file candidate chain
+  // that previously duplicated this loop.
+  async function fetchFirstNonEmpty(candidates, label) {
+    let lastError;
+    let sawEmptyResponse = false;
+
+    for (const candidate of candidates) {
+      try {
+        const media = await requestBinary(candidate.path, {}, candidate.useApiBase);
+
+        if (media.buffer?.length > 0) {
+          return media;
+        }
+
+        sawEmptyResponse = true;
+        lastError = new Error(`Empty ${label} at ${candidate.path}`);
+        logger.warn(`[HA API] Empty ${label} at ${candidate.path}, trying next candidate.`);
+      } catch (error) {
+        lastError = error;
+        logger.warn(`[HA API] Failed to fetch ${label} at ${candidate.path}:`, error.message);
+      }
+    }
+
+    const failure = lastError || new Error(`Could not fetch ${label}.`);
+
+    // An endpoint that answered with an empty body is still reachable, so the
+    // caller must not disable it permanently. Only a chain where every
+    // candidate raised a request error counts as unreachable.
+    failure.everyCandidateFailed = !sawEmptyResponse;
+    throw failure;
+  }
+
+  // Calls `fn` up to `attempts` times, waiting `delayMs` between tries,
+  // returning the first result with a non-empty buffer. Replaces the inline
+  // camera-snapshot retry loop.
+  async function retryForNonEmpty(fn, { attempts, delayMs }) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        const result = await fn();
+
+        if (result.buffer?.length > 0) {
+          return result;
+        }
+
+        lastError = new Error("Empty snapshot");
+      } catch (error) {
+        lastError = error;
+      }
+
+      await sleep(delayMs);
+    }
+
+    throw lastError;
   }
 
   async function getStates() {
@@ -79,7 +157,7 @@ export function createHomeAssistantClient({ baseUrl, token }) {
   }
 
   async function callService(domain, service, serviceData = {}) {
-    console.log(`[HA API] Llamando servicio ${domain}.${service} → ${JSON.stringify(serviceData)}`);
+    logger.log(`[HA API] Calling service ${domain}.${service} → ${JSON.stringify(serviceData)}`);
     return request(`/services/${domain}/${service}`, {
       method: "POST",
       body: JSON.stringify(serviceData),
@@ -88,9 +166,9 @@ export function createHomeAssistantClient({ baseUrl, token }) {
 
   async function getCameraSnapshot(entityId) {
     const unavailableUntil = cameraSnapshotUnavailableUntil.get(entityId) || 0;
-    if (Date.now() < unavailableUntil) {
-      const waitSeconds = Math.ceil((unavailableUntil - Date.now()) / 1000);
-      throw new Error(`La cámara no está entregando snapshots válidos. Reintentá en ${waitSeconds}s.`);
+    if (now() < unavailableUntil) {
+      const waitSeconds = Math.ceil((unavailableUntil - now()) / 1000);
+      throw new Error(`Camera is not delivering valid snapshots. Retry in ${waitSeconds}s.`);
     }
 
     const encodedEntityId = encodeURIComponent(entityId);
@@ -98,32 +176,30 @@ export function createHomeAssistantClient({ baseUrl, token }) {
 
     if (!skipProxy) {
       try {
-        const proxyMedia = await requestBinary(`/camera_proxy/${encodedEntityId}`);
-
-        if (proxyMedia.buffer?.length > 0) {
-          return proxyMedia;
-        }
-
-        console.warn(`[HA API] Snapshot vacío por proxy para ${entityId}, uso fallback por servicio.`);
+        return await fetchFirstNonEmpty(
+          [
+            { path: `/camera_proxy/${encodedEntityId}`, useApiBase: true },
+            { path: `/api/camera_proxy/${encodedEntityId}`, useApiBase: false },
+          ],
+          "camera snapshot",
+        );
       } catch (error) {
-        console.warn(`[HA API] Fallback snapshot para ${entityId}:`, error.message);
-        try {
-          const proxyMedia = await requestBinary(`/api/camera_proxy/${encodedEntityId}`, {}, false);
+        logger.warn(
+          `[HA API] Snapshot proxy unavailable for ${entityId}, falling back to service:`,
+          error.message,
+        );
 
-          if (proxyMedia.buffer?.length > 0) {
-            return proxyMedia;
-          }
-
-          console.warn(`[HA API] Snapshot vacío por proxy alternativo para ${entityId}, uso fallback por servicio.`);
-        } catch (secondError) {
-          console.warn(`[HA API] Fallback snapshot service para ${entityId}:`, secondError.message);
+        // Skip the proxy on later calls only when every candidate raised a
+        // request error. An empty snapshot is treated as transient, so a
+        // camera that returns one blank frame keeps using the fast proxy path.
+        if (error.everyCandidateFailed) {
           cameraProxyUnavailable.add(entityId);
         }
       }
     }
 
     const safeEntityId = entityId.replace(/[^a-zA-Z0-9_]/g, "_");
-    const fileName = `ha_status_bot_snapshot_${safeEntityId}_${Date.now()}.jpg`;
+    const fileName = `ha_status_bot_snapshot_${safeEntityId}_${now()}.jpg`;
     const internalPath = `/media/${fileName}`;
     const publicPath = `/media/local/${fileName}`;
 
@@ -132,32 +208,22 @@ export function createHomeAssistantClient({ baseUrl, token }) {
       filename: internalPath,
     });
 
-    let lastError;
-
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const media = await getMediaFile(publicPath, { onlyOriginalPath: true });
-
-        if (media.buffer?.length > 0) {
-          return media;
-        }
-
-        lastError = new Error("Snapshot vacío");
-      } catch (error) {
-        lastError = error;
-      }
-
-      await sleep(1200);
+    try {
+      return await retryForNonEmpty(() => getMediaFile(publicPath, { onlyOriginalPath: true }), {
+        attempts: HA_RETRY.ATTEMPTS,
+        delayMs: HA_RETRY.DELAY_MS,
+      });
+    } catch (error) {
+      // Avoid long retry loops: if the camera keeps returning invalid bytes,
+      // pause retries for a cooldown window.
+      cameraSnapshotUnavailableUntil.set(entityId, now() + HA_RETRY.SNAPSHOT_COOLDOWN_MS);
+      throw error || new Error("Could not get a valid image from the camera.");
     }
-
-    // Evita loops largos: si la cámara no da bytes válidos, pausamos reintentos por 5 min.
-    cameraSnapshotUnavailableUntil.set(entityId, Date.now() + 5 * 60 * 1000);
-    throw lastError || new Error("No se pudo obtener una imagen válida de la cámara.");
   }
 
-  async function recordCameraClip(entityId, duration = 30) {
+  async function recordCameraClip(entityId, duration = CAMERA_CLIP_DURATION_SECONDS) {
     const safeEntityId = entityId.replace(/[^a-zA-Z0-9_]/g, "_");
-    const fileName = `ha_status_bot_${safeEntityId}_${Date.now()}.mp4`;
+    const fileName = `ha_status_bot_${safeEntityId}_${now()}.mp4`;
     const internalPath = `/media/${fileName}`;
     const publicPath = `/media/local/${fileName}`;
 
@@ -176,40 +242,25 @@ export function createHomeAssistantClient({ baseUrl, token }) {
   async function getMediaFile(mediaPath, options = {}) {
     const onlyOriginalPath = options.onlyOriginalPath === true;
     const normalizedPath = mediaPath.startsWith("/") ? mediaPath : `/${mediaPath}`;
-    const candidates = onlyOriginalPath
+    const candidatePaths = onlyOriginalPath
       ? [normalizedPath]
       : [
-        normalizedPath,
-        normalizedPath.startsWith("/media/local/")
-          ? normalizedPath.replace("/media/local/", "/media/")
-          : normalizedPath,
-        normalizedPath.startsWith("/media/local/")
-          ? normalizedPath.replace("/media/local/", "/api/media_proxy/media/")
-          : normalizedPath,
-        normalizedPath.startsWith("/media/")
-          ? normalizedPath.replace("/media/", "/api/media_proxy/media/")
-          : normalizedPath,
-      ];
+          normalizedPath,
+          normalizedPath.startsWith("/media/local/")
+            ? normalizedPath.replace("/media/local/", "/media/")
+            : normalizedPath,
+          normalizedPath.startsWith("/media/local/")
+            ? normalizedPath.replace("/media/local/", "/api/media_proxy/media/")
+            : normalizedPath,
+          normalizedPath.startsWith("/media/")
+            ? normalizedPath.replace("/media/", "/api/media_proxy/media/")
+            : normalizedPath,
+        ];
 
-    let lastError;
-
-    for (const candidate of candidates) {
-      try {
-        const media = await requestBinary(candidate, {}, false);
-
-        if (media.buffer?.length > 0) {
-          return media;
-        }
-
-        lastError = new Error(`Archivo multimedia vacío en ${candidate}`);
-        console.warn(`[HA API] Archivo multimedia vacío en ${candidate}`);
-      } catch (error) {
-        lastError = error;
-        console.warn(`[HA API] Falló descarga de media en ${candidate}:`, error.message);
-      }
-    }
-
-    throw lastError || new Error("No se pudo descargar el archivo multimedia.");
+    return fetchFirstNonEmpty(
+      candidatePaths.map((path) => ({ path, useApiBase: false })),
+      "media file",
+    );
   }
 
   return {

@@ -1,5 +1,5 @@
-import fs from "fs";
-import { pathToFileURL } from "url";
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 import { createHomeAssistantClient } from "./haClient.js";
 import { createTelegramBot } from "./telegram.js";
 
@@ -19,17 +19,6 @@ function requireEnv(env, name) {
   return value;
 }
 
-function parseAllowedChatIds(value) {
-  if (!value || !value.trim()) {
-    return [];
-  }
-
-  return value
-    .split(",")
-    .map((id) => id.trim())
-    .filter(Boolean);
-}
-
 function coerceLowBatteryThreshold(value) {
   const threshold = Number(value ?? 20);
   return Number.isFinite(threshold) ? threshold : NaN;
@@ -38,29 +27,33 @@ function coerceLowBatteryThreshold(value) {
 function buildOptionFields(options) {
   return [
     {
-      name: "telegram_token",
-      value: options.telegram_token,
+      name: "telegram_bot_token",
+      value: options.telegram_bot_token,
       validate: (value) => typeof value === "string" && value.length > 0,
       message: "must be a non-empty string",
-      read: () => options.telegram_token,
+      read: () => options.telegram_bot_token,
     },
     {
       name: "allowed_chat_ids",
       value: options.allowed_chat_ids,
-      validate: () => true,
-      message: "must be a comma-separated string",
-      read: () => parseAllowedChatIds(options.allowed_chat_ids),
+      validate: (value) => value === undefined || Array.isArray(value),
+      message: "must be a list of strings",
+      read: () => (Array.isArray(options.allowed_chat_ids) ? options.allowed_chat_ids : []),
     },
     {
-      name: "low_battery_threshold",
-      value: coerceLowBatteryThreshold(options.low_battery_threshold),
+      name: "low_battery_threshold_percent",
+      value: coerceLowBatteryThreshold(options.low_battery_threshold_percent),
       validate: (value) => Number.isFinite(value) && value >= 0 && value <= 100,
       message: "must be a number between 0 and 100",
-      read: () => coerceLowBatteryThreshold(options.low_battery_threshold),
+      read: () => coerceLowBatteryThreshold(options.low_battery_threshold_percent),
     },
   ];
 }
 
+// loadConfig is the single authorized entry point for reading process.env;
+// every other module receives config through injected parameters (see
+// design Decision 2).
+// biome-ignore lint/style/noProcessEnv: authorized single entry point, see comment above
 export function loadConfig({ env = process.env, readFile = defaultReadFile } = {}) {
   const optionsPath = env.OPTIONS_PATH || "/data/options.json";
   console.log(`Loading options from ${optionsPath}...`);
@@ -93,11 +86,67 @@ export function loadConfig({ env = process.env, readFile = defaultReadFile } = {
   });
 }
 
+// Registers process-level lifecycle handlers. The Supervisor sends SIGTERM on
+// every add-on stop, restart, and update; long polling holds an open HTTP
+// request, so an idempotent graceful stop is required.
+export function installProcessHandlers({
+  bot,
+  processRef = process,
+  exit = process.exit,
+  logger = console,
+  timeoutMs = 10_000,
+}) {
+  let shuttingDown = false;
+
+  async function shutdown(signal) {
+    if (shuttingDown) {
+      return;
+    }
+
+    shuttingDown = true;
+    logger.log(`Received ${signal}, shutting down gracefully...`);
+
+    const forceExitTimer = setTimeout(() => {
+      logger.error(`Graceful shutdown timed out after ${timeoutMs}ms, forcing exit.`);
+      exit(1);
+    }, timeoutMs);
+    forceExitTimer.unref?.();
+
+    try {
+      await bot.stopPolling({ cancel: true });
+      clearTimeout(forceExitTimer);
+      exit(0);
+    } catch (error) {
+      clearTimeout(forceExitTimer);
+      logger.error("Error while stopping the bot:", error);
+      exit(1);
+    }
+  }
+
+  processRef.on("SIGTERM", () => shutdown("SIGTERM"));
+  processRef.on("SIGINT", () => shutdown("SIGINT"));
+
+  // A transient Home Assistant error (e.g. a 502) surfaces here as a rejected
+  // promise somewhere in the polling/handler chain. It must not take down the
+  // add-on: log it and keep running.
+  processRef.on("unhandledRejection", (reason) => {
+    logger.error("Unhandled promise rejection:", reason);
+  });
+
+  processRef.on("uncaughtException", (error) => {
+    logger.error("Uncaught exception:", error);
+    exit(1);
+  });
+}
+
 export async function bootstrap({
   config,
   createHaClient = createHomeAssistantClient,
   startBot = createTelegramBot,
   logger = console,
+  processRef = process,
+  exit = process.exit,
+  shutdownTimeoutMs = 10_000,
 } = {}) {
   logger.log("Connecting to Home Assistant API...");
   const ha = createHaClient({
@@ -111,6 +160,8 @@ export async function bootstrap({
     lowBatteryThreshold: config.thresholds.lowBattery,
     ha,
   });
+
+  installProcessHandlers({ bot, processRef, exit, logger, timeoutMs: shutdownTimeoutMs });
 
   logger.log("HA Status Bot started successfully.");
   return bot;

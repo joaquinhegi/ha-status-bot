@@ -50,7 +50,17 @@ Rationale: the new names match `src/formatter.js`'s existing English function na
 
 - GIVEN the bot is running with the renamed commands
 - WHEN a chat sends `/luces`
-- THEN the bot does not run the lights flow (falls through to unknown-command handling)
+- THEN the bot does not run the lights flow, calls no Home Assistant service, and sends no reply at all
+
+> Amended after verification. The original clause said the command "falls through to
+> unknown-command handling", which describes behavior this add-on does not have:
+> `src/telegram.js` registers no catch-all `bot.on("message")` handler, so a retired
+> command produces silence rather than an unknown-command reply. The scenario now
+> states the behavior that actually exists and that the suite pins.
+>
+> Known consequence, deliberately left for a later change: a user who types a retired
+> command gets no feedback and no pointer to its new name. Adding a catch-all that
+> replies with the rename mapping would turn that silence into a guided migration.
 
 #### Scenario: New English command runs the flow
 

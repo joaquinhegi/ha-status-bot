@@ -1,13 +1,19 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
+import { describe, it } from "node:test";
 
-import { HA_DEFAULT_BASE_URL, bootstrap, loadConfig } from "../src/index.js";
+import {
+  bootstrap,
+  HA_DEFAULT_BASE_URL,
+  installProcessHandlers,
+  loadConfig,
+} from "../src/index.js";
 
 function makeOptions(overrides = {}) {
   return {
-    telegram_token: "test-token",
-    allowed_chat_ids: "111,222",
-    low_battery_threshold: 15,
+    telegram_bot_token: "test-token",
+    allowed_chat_ids: ["111", "222"],
+    low_battery_threshold_percent: 15,
     ...overrides,
   };
 }
@@ -42,7 +48,12 @@ describe("loadConfig", () => {
       readFile: fakeReadFile(makeOptions()),
     });
 
-    assert.strictEqual(config.homeAssistant.baseUrl, HA_DEFAULT_BASE_URL);
+    // Pinned to the literal on purpose. Comparing against HA_DEFAULT_BASE_URL
+    // would hold for any value the constant takes, including the
+    // http://homeassistant.local:8123/api default this change was created to
+    // remove. An add-on must reach Home Assistant through the Supervisor proxy.
+    assert.strictEqual(config.homeAssistant.baseUrl, "http://supervisor/core/api");
+    assert.strictEqual(HA_DEFAULT_BASE_URL, "http://supervisor/core/api");
   });
 
   it("honours HA_BASE_URL override for non-Supervisor deployments", () => {
@@ -66,82 +77,91 @@ describe("loadConfig", () => {
   it("throws naming SUPERVISOR_TOKEN when missing", () => {
     assert.throws(
       () => loadConfig({ env: {}, readFile: fakeReadFile(makeOptions()) }),
-      /SUPERVISOR_TOKEN/
+      /SUPERVISOR_TOKEN/,
     );
   });
 
   it("throws naming homeassistant_api guidance when SUPERVISOR_TOKEN is missing", () => {
     assert.throws(
       () => loadConfig({ env: {}, readFile: fakeReadFile(makeOptions()) }),
-      /homeassistant_api/
+      /homeassistant_api/,
     );
   });
 
-  it("parses comma-separated chat IDs and trims whitespace", () => {
+  it("passes the allowed_chat_ids list through unchanged", () => {
     const config = loadConfig({
       env: fakeEnv(),
-      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: " 111 , 222 ," })),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: ["111", "222"] })),
     });
 
     assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
   });
 
-  it("returns an empty allow-list when allowed_chat_ids is blank", () => {
+  it("returns an empty allow-list when allowed_chat_ids is an empty list", () => {
     const config = loadConfig({
       env: fakeEnv(),
-      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: "" })),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: [] })),
     });
 
     assert.deepStrictEqual(config.telegram.allowedChatIds, []);
   });
 
-  it("coerces a numeric low_battery_threshold string", () => {
+  it("returns an empty allow-list when allowed_chat_ids is absent", () => {
+    const options = makeOptions();
+    delete options.allowed_chat_ids;
+
+    const config = loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, []);
+  });
+
+  it("coerces a numeric low_battery_threshold_percent string", () => {
     const config = loadConfig({
       env: fakeEnv(),
-      readFile: fakeReadFile(makeOptions({ low_battery_threshold: "30" })),
+      readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: "30" })),
     });
 
     assert.strictEqual(config.thresholds.lowBattery, 30);
   });
 
-  it("defaults low_battery_threshold to 20 when absent", () => {
+  it("defaults low_battery_threshold_percent to 20 when absent", () => {
     const options = makeOptions();
-    delete options.low_battery_threshold;
+    delete options.low_battery_threshold_percent;
 
     const config = loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) });
 
     assert.strictEqual(config.thresholds.lowBattery, 20);
   });
 
-  it("rejects a low_battery_threshold above 100, naming the option", () => {
+  it("rejects a low_battery_threshold_percent above 100, naming the option", () => {
     assert.throws(
       () =>
         loadConfig({
           env: fakeEnv(),
-          readFile: fakeReadFile(makeOptions({ low_battery_threshold: 150 })),
+          readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: 150 })),
         }),
-      /low_battery_threshold/
+      /low_battery_threshold_percent/,
     );
   });
 
-  it("rejects a low_battery_threshold below 0, naming the option", () => {
+  it("rejects a low_battery_threshold_percent below 0, naming the option", () => {
     assert.throws(
       () =>
         loadConfig({
           env: fakeEnv(),
-          readFile: fakeReadFile(makeOptions({ low_battery_threshold: -5 })),
+          readFile: fakeReadFile(makeOptions({ low_battery_threshold_percent: -5 })),
         }),
-      /low_battery_threshold/
+      /low_battery_threshold_percent/,
     );
   });
 
-  it("names the missing option in the thrown error when telegram_token is absent", () => {
+  it("names the missing option in the thrown error when telegram_bot_token is absent", () => {
     const options = makeOptions();
-    delete options.telegram_token;
+    delete options.telegram_bot_token;
 
     assert.throws(
       () => loadConfig({ env: fakeEnv(), readFile: fakeReadFile(options) }),
-      /telegram_token/
+      /telegram_bot_token/,
     );
   });
 
@@ -197,6 +217,8 @@ describe("bootstrap", () => {
       createHaClient,
       startBot,
       logger: noopLogger,
+      processRef: new EventEmitter(),
+      exit: () => {},
     });
 
     assert.strictEqual(receivedArgs.baseUrl, "http://supervisor/core/api");
@@ -217,6 +239,8 @@ describe("bootstrap", () => {
       createHaClient,
       startBot,
       logger: noopLogger,
+      processRef: new EventEmitter(),
+      exit: () => {},
     });
 
     assert.strictEqual(receivedArgs.token, "test-token");
@@ -232,8 +256,100 @@ describe("bootstrap", () => {
       createHaClient: () => ({}),
       startBot: () => bot,
       logger: noopLogger,
+      processRef: new EventEmitter(),
+      exit: () => {},
     });
 
     assert.strictEqual(result, bot);
+  });
+});
+
+describe("installProcessHandlers", () => {
+  function fakeBot() {
+    const calls = { stopPolling: 0 };
+    return {
+      calls,
+      async stopPolling() {
+        calls.stopPolling += 1;
+      },
+    };
+  }
+
+  function fakeExit() {
+    const calls = [];
+    const exit = (code) => calls.push(code);
+    exit.calls = calls;
+    return exit;
+  }
+
+  async function flushMicrotasks() {
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  it("stops polling once and exits 0 on SIGTERM", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("SIGTERM");
+    await flushMicrotasks();
+
+    assert.strictEqual(bot.calls.stopPolling, 1);
+    assert.deepStrictEqual(exit.calls, [0]);
+  });
+
+  it("ignores a repeated SIGTERM once shutdown is already in progress", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("SIGTERM");
+    processRef.emit("SIGTERM");
+    await flushMicrotasks();
+
+    assert.strictEqual(bot.calls.stopPolling, 1);
+    assert.deepStrictEqual(exit.calls, [0]);
+  });
+
+  it("stops polling once and exits 0 on SIGINT", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("SIGINT");
+    await flushMicrotasks();
+
+    assert.strictEqual(bot.calls.stopPolling, 1);
+    assert.deepStrictEqual(exit.calls, [0]);
+  });
+
+  it("logs an unhandledRejection without exiting", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+    const logged = [];
+    const logger = { log() {}, error: (...args) => logged.push(args) };
+
+    installProcessHandlers({ bot, processRef, exit, logger });
+    processRef.emit("unhandledRejection", new Error("boom"));
+    await flushMicrotasks();
+
+    assert.strictEqual(exit.calls.length, 0);
+    assert.strictEqual(logged.length, 1);
+  });
+
+  it("exits non-zero on an uncaughtException", async () => {
+    const processRef = new EventEmitter();
+    const bot = fakeBot();
+    const exit = fakeExit();
+
+    installProcessHandlers({ bot, processRef, exit, logger: noopLogger });
+    processRef.emit("uncaughtException", new Error("fatal"));
+    await flushMicrotasks();
+
+    assert.deepStrictEqual(exit.calls, [1]);
   });
 });

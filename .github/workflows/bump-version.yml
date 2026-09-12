@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Nueva versión (ej: 1.2.0)"
+        description: "New version (e.g. 1.2.0)"
         required: true
         type: string
 
@@ -19,42 +19,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validar formato de versión
+      # The input reaches the shell through the environment, never through
+      # ${{ }} interpolation inside a run block. Interpolation would splice the
+      # raw value into the script before the format check below could reject it.
+      - name: Validate version format
+        env:
+          VERSION: ${{ inputs.version }}
         run: |
-          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "❌ Formato inválido. Usa X.Y.Z (ej: 1.2.0)"
+          if ! printf '%s' "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Invalid format. Use X.Y.Z (e.g. 1.2.0)"
             exit 1
           fi
 
-      - name: Actualizar versión en package.json
-        run: |
-          sed -i 's/"version": ".*"/"version": "${{ inputs.version }}"/' package.json
-
-      - name: Actualizar versión en config.yaml
-        run: |
-          sed -i 's/^version: ".*"/version: "${{ inputs.version }}"/' config.yaml
-
-      - name: Crear rama, commit y PR
+      - name: Update the version in package.json and config.yaml
         env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          sed -i "s/\"version\": \".*\"/\"version\": \"$VERSION\"/" package.json
+          sed -i "s/^version: \".*\"/version: \"$VERSION\"/" config.yaml
+
+      - name: Open the bump pull request
+        env:
+          VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          BRANCH="bump/v${{ inputs.version }}"
+          BRANCH="bump/v$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
           git add package.json config.yaml
-          git commit -m "bump: v${{ inputs.version }}"
-          git push origin "$BRANCH" --force
+          git commit -m "bump: v$VERSION"
+          git push origin "$BRANCH"
           gh pr create \
-            --title "bump: v${{ inputs.version }}" \
-            --body "Actualiza versión a **${{ inputs.version }}** en \`package.json\` y \`config.yaml\`.\n\nAl mergear esta PR, se creará automáticamente el tag \`v${{ inputs.version }}\`." \
+            --title "bump: v$VERSION" \
+            --body "$(printf 'Sets the version to **%s** in `package.json` and `config.yaml`.\n\nMerging this pull request creates the `v%s` tag automatically.\n\nUpdate `CHANGELOG.md` in the same release if this version carries user-visible changes.' "$VERSION" "$VERSION")" \
             --base main \
             --head "$BRANCH"
-
-  tag:
-    needs: bump
-    runs-on: ubuntu-latest
-    if: false  # Se activa manualmente después del merge, ver workflow create-tag
-
-    steps:
-      - run: echo "Tag se crea con el workflow on-merge"

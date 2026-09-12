@@ -1,8 +1,8 @@
-import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 
 import { createTelegramBot } from "../src/telegram.js";
-import { FakeTelegramBot } from "./helpers/fakeTelegramBot.js";
+import { FakeTelegramBot, makeCallbackQuery } from "./helpers/fakeTelegramBot.js";
 
 const noopLogger = { log() {}, warn() {}, error() {} };
 
@@ -92,6 +92,22 @@ function makeTemperatureSensorEntity(id, value) {
   };
 }
 
+function makeCoverEntity(id, state = "closed") {
+  return {
+    entity_id: `cover.${id}`,
+    state,
+    attributes: { friendly_name: `Cover ${id}` },
+  };
+}
+
+function makeCameraEntity(id) {
+  return {
+    entity_id: `camera.${id}`,
+    state: "idle",
+    attributes: { friendly_name: `Camera ${id}` },
+  };
+}
+
 function setup({ states = [], allowedChatIds = [], haOverrides = {} } = {}) {
   const bot = new FakeTelegramBot();
   const ha = createFakeHaClient({ states, ...haOverrides });
@@ -113,7 +129,7 @@ describe("createTelegramBot allow-list", () => {
     const lights = [makeLightEntity("kitchen")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
 
-    await bot.emitText("/estado", 42);
+    await bot.emitText("/status", 42);
 
     assert.strictEqual(ha.calls.getStates, 1);
     assert.strictEqual(bot.sentMessages.length, 1);
@@ -124,7 +140,7 @@ describe("createTelegramBot allow-list", () => {
     const lights = [makeLightEntity("kitchen")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
 
-    await bot.emitText("/estado", 999);
+    await bot.emitText("/status", 999);
 
     assert.strictEqual(ha.calls.getStates, 0);
     assert.strictEqual(bot.sentMessages.length, 1);
@@ -134,7 +150,7 @@ describe("createTelegramBot allow-list", () => {
   it("allows every chat_id when the allow-list is empty", async () => {
     const { bot, ha } = setup({ states: [], allowedChatIds: [] });
 
-    await bot.emitText("/estado", 7);
+    await bot.emitText("/status", 7);
 
     assert.strictEqual(ha.calls.getStates, 1);
     assert.strictEqual(bot.sentMessages[0].chatId, 7);
@@ -142,51 +158,51 @@ describe("createTelegramBot allow-list", () => {
 });
 
 describe("createTelegramBot simple read commands", () => {
-  it("/estado replies with fixture data derived from the real formatter", async () => {
+  it("/status replies with fixture data derived from the real formatter", async () => {
     const states = [makeLightEntity("kitchen")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Light kitchen/);
   });
 
-  it("/sensores replies with the active binary sensor from HA", async () => {
+  it("/sensors replies with the active binary sensor from HA", async () => {
     const states = [makeBinarySensorEntity("hall", "motion")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/sensores", 1);
+    await bot.emitText("/sensors", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Sensor hall/);
   });
 
-  it("/puertas replies with the open door/window entity from HA", async () => {
+  it("/doors replies with the open door/window entity from HA", async () => {
     const states = [makeBinarySensorEntity("frontdoor", "door")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/puertas", 1);
+    await bot.emitText("/doors", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Sensor frontdoor/);
   });
 
-  it("/bateria replies with a battery below the configured threshold", async () => {
+  it("/battery replies with a battery below the configured threshold", async () => {
     const states = [makeBatterySensorEntity("remote", 10)];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/bateria", 1);
+    await bot.emitText("/battery", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Battery remote/);
   });
 
-  it("/temp replies with a temperature sensor reading from HA", async () => {
+  it("/temperature replies with a temperature sensor reading from HA", async () => {
     const states = [makeTemperatureSensorEntity("living_room", 21.5)];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/temp", 1);
+    await bot.emitText("/temperature", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.match(bot.sentMessages[0].text, /Temp living_room/);
@@ -209,10 +225,190 @@ describe("createTelegramBot simple read commands", () => {
       logger: noopLogger,
     });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.strictEqual(bot.sentMessages[0].chatId, 1);
+  });
+});
+
+describe("createTelegramBot /lights command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeLightEntity("kitchen")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/lights", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per light", async () => {
+    const lights = [makeLightEntity("kitchen", "on"), makeLightEntity("hall", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitText("/lights", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, lights.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("light_off:light.kitchen"));
+    assert.ok(callbackDataValues.includes("light_on:light.hall"));
+  });
+
+  it("replies without an inline keyboard when there are no lights", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/lights", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+
+  it("replies without throwing when HA fails", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        throw new Error("boom");
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitText("/lights", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+});
+
+describe("createTelegramBot /covers command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeCoverEntity("garage")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/covers", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per cover", async () => {
+    const covers = [makeCoverEntity("garage", "closed"), makeCoverEntity("gate", "open")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitText("/covers", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, covers.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("cover_open:cover.garage"));
+    assert.ok(callbackDataValues.includes("cover_close:cover.gate"));
+  });
+
+  it("replies without an inline keyboard when there are no covers", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/covers", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+
+  it("replies without throwing when HA fails", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        throw new Error("boom");
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitText("/covers", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+});
+
+describe("createTelegramBot /cameras command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeCameraEntity("front")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/cameras", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per camera", async () => {
+    const cameras = [makeCameraEntity("front"), makeCameraEntity("back")];
+    const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitText("/cameras", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, cameras.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("camera_pick:camera.front"));
+    assert.ok(callbackDataValues.includes("camera_pick:camera.back"));
+  });
+
+  it("replies without an inline keyboard when there are no cameras", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/cameras", 1);
+
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+
+  it("replies without throwing when HA fails", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        throw new Error("boom");
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitText("/cameras", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options, undefined);
   });
 });
 
@@ -221,18 +417,18 @@ describe("createTelegramBot reply chunking", () => {
     const states = [makeLightEntity("kitchen")];
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.strictEqual(bot.sentMessages.length, 1);
   });
 
   it("splits the formatted reply into multiple messages over 3900 characters", async () => {
     const states = Array.from({ length: 200 }, (_, index) =>
-      makeLightEntity(`bulb_${String(index).padStart(3, "0")}_${"x".repeat(20)}`)
+      makeLightEntity(`bulb_${String(index).padStart(3, "0")}_${"x".repeat(20)}`),
     );
     const { bot } = setup({ states, allowedChatIds: [] });
 
-    await bot.emitText("/estado", 1);
+    await bot.emitText("/status", 1);
 
     assert.ok(bot.sentMessages.length > 1);
     assert.strictEqual(bot.sentMessages[0].chatId, 1);
@@ -264,12 +460,482 @@ describe("createTelegramBot testability seam", () => {
   });
 });
 
+describe("createTelegramBot callback_query dispatch", () => {
+  it("light_on calls callService turn_on and refreshes the light keyboard", async () => {
+    const lights = [makeLightEntity("kitchen", "off"), makeLightEntity("hall", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_on:light.kitchen" }));
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "light",
+      service: "turn_on",
+      data: { entity_id: "light.kitchen" },
+    });
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+    assert.strictEqual(bot.editedReplyMarkups.length, 1);
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, lights.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("light_on:light.kitchen"));
+  });
+
+  it("light_off calls callService turn_off and refreshes the light keyboard", async () => {
+    const lights = [makeLightEntity("kitchen", "on")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_off:light.kitchen" }));
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "light",
+      service: "turn_off",
+      data: { entity_id: "light.kitchen" },
+    });
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 1);
+    assert.strictEqual(keyboard[0][0].callback_data, "light_off:light.kitchen");
+  });
+
+  it("cover_open calls callService open_cover and refreshes the cover keyboard", async () => {
+    const covers = [makeCoverEntity("garage", "closed")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "cover_open:cover.garage" }));
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "cover",
+      service: "open_cover",
+      data: { entity_id: "cover.garage" },
+    });
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 1);
+    assert.strictEqual(keyboard[0][0].callback_data, "cover_open:cover.garage");
+  });
+
+  it("cover_close calls callService close_cover and refreshes the cover keyboard", async () => {
+    const covers = [makeCoverEntity("garage", "open")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "cover_close:cover.garage" }));
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "cover",
+      service: "close_cover",
+      data: { entity_id: "cover.garage" },
+    });
+    const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 1);
+    assert.strictEqual(keyboard[0][0].callback_data, "cover_close:cover.garage");
+  });
+
+  it("camera_pick edits the message with a 3-row options keyboard for the selected camera", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_pick:camera.front" }));
+
+    assert.strictEqual(bot.editedTexts.length, 1);
+    const keyboard = bot.editedTexts[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 3);
+    assert.strictEqual(keyboard[0][0].callback_data, "camera_img:camera.front");
+    assert.strictEqual(keyboard[1][0].callback_data, "camera_vid30:camera.front");
+    assert.strictEqual(keyboard[2][0].callback_data, "camera_list");
+  });
+
+  it("camera_list edits the message with one keyboard row per available camera", async () => {
+    const cameras = [makeCameraEntity("front"), makeCameraEntity("back")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_list" }));
+
+    assert.strictEqual(bot.editedTexts.length, 1);
+    const keyboard = bot.editedTexts[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, cameras.length);
+    const callbackDataValues = keyboard.map((row) => row[0].callback_data);
+    assert.ok(callbackDataValues.includes("camera_pick:camera.front"));
+    assert.ok(callbackDataValues.includes("camera_pick:camera.back"));
+  });
+});
+
+describe("createTelegramBot camera media flows", () => {
+  it("camera_img sends the snapshot buffer as a photo", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_img:camera.front" }));
+
+    assert.strictEqual(ha.calls.getCameraSnapshot.length, 1);
+    assert.strictEqual(ha.calls.getCameraSnapshot[0], "camera.front");
+    assert.strictEqual(bot.sentPhotos.length, 1);
+    assert.strictEqual(bot.sentPhotos[0].fileOptions.contentType, "image/jpeg");
+  });
+
+  it("camera_vid30 records a clip and sends the resolved video buffer", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_vid30:camera.front" }));
+
+    assert.strictEqual(ha.calls.recordCameraClip.length, 1);
+    assert.deepStrictEqual(ha.calls.recordCameraClip[0], {
+      entityId: "camera.front",
+      seconds: 30,
+    });
+    assert.ok(ha.calls.getMediaFile.includes("/fake/clip.mp4"));
+    assert.strictEqual(bot.sentVideos.length, 1);
+    assert.strictEqual(bot.sentVideos[0].fileOptions.contentType, "video/mp4");
+  });
+
+  it("falls back to a snapshot image when camera.record is unsupported (5xx)", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const recordError = new Error("record unsupported");
+    recordError.path = "/services/camera/record";
+    recordError.status = 501;
+    const { bot, ha } = setup({
+      states: cameras,
+      allowedChatIds: [],
+      haOverrides: {
+        onRecordCameraClip: () => {
+          throw recordError;
+        },
+      },
+    });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_vid30:camera.front" }));
+
+    assert.strictEqual(bot.sentVideos.length, 0);
+    assert.strictEqual(bot.sentPhotos.length, 1);
+    assert.strictEqual(ha.calls.getCameraSnapshot.length, 1);
+  });
+
+  it("sends the photo as a document when sendPhoto fails", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+    bot.sendPhoto = async () => {
+      throw new Error("sendPhoto unavailable");
+    };
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_img:camera.front" }));
+
+    assert.strictEqual(bot.sentPhotos.length, 0);
+    assert.strictEqual(bot.sentDocuments.length, 1);
+  });
+
+  it("sends the video as a document when sendVideo fails", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+    bot.sendVideo = async () => {
+      throw new Error("sendVideo unavailable");
+    };
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_vid30:camera.front" }));
+
+    assert.strictEqual(bot.sentVideos.length, 0);
+    assert.strictEqual(bot.sentDocuments.length, 1);
+  });
+});
+
+describe("createTelegramBot callback_query allow-list gate", () => {
+  it("denies a callback from a chat_id absent from the allow-list without calling HA", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 999 }),
+    );
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+    assert.strictEqual(bot.editedReplyMarkups.length, 0);
+  });
+
+  it("allows a callback from a chat_id present in the allow-list", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: ["42"] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 42 }),
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+  });
+});
+
+describe("createTelegramBot callback_query unknown action", () => {
+  it("answers the callback without calling any HA service or editing the message", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "not_a_real_action:foo.bar" }));
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+    assert.strictEqual(bot.editedTexts.length, 0);
+    assert.strictEqual(bot.editedReplyMarkups.length, 0);
+  });
+});
+
+describe("createTelegramBot callback_query outer error handler", () => {
+  // The post-action keyboard refresh (see the "Refresh the inline keyboard"
+  // comment in src/telegram.js) has no try/catch of its own — it deliberately
+  // relies on the outer callback_query catch below it. This drives a failure
+  // through that exact refresh step (the action itself succeeds, the
+  // follow-up state re-fetch for the keyboard does not) to prove the outer
+  // handler is what reports it: an error reply to the chat and an error
+  // answer to the callback, rather than an unhandled rejection.
+  it("reports a keyboard-refresh failure via the outer catch, not the action branch", async () => {
+    const entityId = "light.kitchen";
+    let getStatesCalls = 0;
+    const bot = new FakeTelegramBot();
+    const ha = {
+      async getStates() {
+        getStatesCalls += 1;
+        if (getStatesCalls === 1) {
+          return [makeLightEntity("kitchen", "off")];
+        }
+        throw new Error("refresh boom");
+      },
+      async callService() {
+        return {};
+      },
+    };
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `light_on:${entityId}`, chatId: 5, messageId: 9 }),
+    );
+
+    assert.strictEqual(getStatesCalls, 2);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.match(bot.sentMessages[0].text, /refresh boom/);
+    assert.strictEqual(bot.answeredCallbacks.length, 2);
+    assert.match(bot.answeredCallbacks[1].options.text, /refresh boom/);
+    assert.strictEqual(bot.editedReplyMarkups.length, 0);
+  });
+});
+
+describe("createTelegramBot entity authorization gate", () => {
+  it("rejects an entity_id never offered in a light keyboard, calling no HA service", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.not_offered" }),
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("rejects a malformed entity_id shape, calling no HA service", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_on:../../etc" }));
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("rejects a cover entity_id never offered, calling no HA service", async () => {
+    const covers = [makeCoverEntity("garage", "closed")];
+    const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "cover_open:cover.not_offered" }),
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("rejects a camera_pick entity_id never offered, without editing the message", async () => {
+    const cameras = [makeCameraEntity("front")];
+    const { bot } = setup({ states: cameras, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "camera_pick:camera.not_offered" }),
+    );
+
+    assert.strictEqual(bot.editedTexts.length, 0);
+    assert.strictEqual(bot.answeredCallbacks.length, 1);
+  });
+
+  it("still accepts an offered entity_id after the gate is in place", async () => {
+    const lights = [makeLightEntity("kitchen", "off")];
+    const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_on:light.kitchen" }));
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+  });
+});
+
+describe("createTelegramBot retired Spanish commands", () => {
+  // The 2.0.0 rename kept no Spanish aliases. Each retired command now gets a
+  // migration reply naming its exact English replacement, instead of the
+  // silence the very first 2.0.0 cut shipped with. It still calls no Home
+  // Assistant service: only a real command runs a flow.
+  const RETIRED_COMMAND_REPLACEMENTS = {
+    "/estado": "/status",
+    "/luces": "/lights",
+    "/sensores": "/sensors",
+    "/puertas": "/doors",
+    "/bateria": "/battery",
+    "/temp": "/temperature",
+    "/persianas": "/covers",
+    "/camaras": "/cameras",
+  };
+
+  for (const [command, replacement] of Object.entries(RETIRED_COMMAND_REPLACEMENTS)) {
+    it(`replies to ${command} naming ${replacement} as its replacement, calling no HA service`, async () => {
+      const lights = [makeLightEntity("kitchen")];
+      const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
+
+      await bot.emitText(command, 42);
+
+      assert.strictEqual(bot.sentMessages.length, 1);
+      assert.strictEqual(bot.sentMessages[0].chatId, 42);
+      assert.match(bot.sentMessages[0].text, new RegExp(replacement.replace("/", "\\/")));
+      assert.strictEqual(ha.calls.getStates, 0);
+      assert.strictEqual(ha.calls.callService.length, 0);
+    });
+  }
+
+  it("gates the migration reply by the allow-list, like every other command", async () => {
+    const { bot, ha } = setup({ states: [], allowedChatIds: ["1"] });
+
+    await bot.emitText("/luces", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+    assert.doesNotMatch(bot.sentMessages[0].text, /\/lights/);
+    assert.strictEqual(ha.calls.getStates, 0);
+  });
+
+  it("still replies with the migration text once the chat is allowed", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["1"] });
+
+    await bot.emitText("/luces", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.match(bot.sentMessages[0].text, /\/lights/);
+  });
+
+  // Regression guard for the highest-risk part of this feature: bot.onText
+  // matching is unanchored, and "/temp" is a substring of "/temperature".
+  // An unanchored retired-command pattern would fire on both, sending the
+  // migration notice alongside (or instead of) the real temperature reply.
+  it("does not intercept /temperature: only the real temperature flow replies", async () => {
+    const states = [makeTemperatureSensorEntity("living_room", 21.5)];
+    const { bot, ha } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitText("/temperature", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(ha.calls.getStates, 1);
+    assert.doesNotMatch(bot.sentMessages[0].text, /renamed/);
+  });
+});
+
+describe("createTelegramBot /start and /help gating", () => {
+  it("denies /start for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/start", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+    assert.strictEqual(bot.sentMessages[0].text.split("\n").length, 1);
+  });
+
+  it("sends the full command list for /start when the chat_id is allowed", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/start", 42);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.ok(bot.sentMessages[0].text.split("\n").length > 1);
+  });
+
+  it("allows /start for every chat_id when the allow-list is empty", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: [] });
+
+    await bot.emitText("/start", 7);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.ok(bot.sentMessages[0].text.split("\n").length > 1);
+  });
+
+  it("denies /help for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/help", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+    assert.strictEqual(bot.sentMessages[0].text.split("\n").length, 1);
+  });
+
+  it("sends the command list for /help when the chat_id is allowed", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/help", 42);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.ok(bot.sentMessages[0].text.split("\n").length > 1);
+  });
+
+  it("keeps /chatid reachable for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitText("/chatid", 999);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+});
+
 describe("user-facing copy", () => {
   it("denies an unauthorized chat with guidance text including its chat_id", async () => {
     const { bot } = setup({ states: [], allowedChatIds: ["1"] });
 
-    await bot.emitText("/estado", 999);
+    await bot.emitText("/status", 999);
 
     assert.match(bot.sentMessages[0].text, /999/);
+  });
+
+  it("/chatid replies without an authorization error for a chat_id absent from the allow-list", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["1"] });
+
+    await bot.emitText("/chatid", 999);
+
+    assert.doesNotMatch(bot.sentMessages[0].text, /[Nn]ot authorized/);
+  });
+
+  it("denies a callback from a disallowed chat with a not-authorized answer", async () => {
+    const { bot } = setup({ states: [], allowedChatIds: ["42"] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 999 }),
+    );
+
+    assert.match(bot.answeredCallbacks[0].options.text, /[Nn]ot authorized/);
   });
 });

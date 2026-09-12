@@ -1,7 +1,11 @@
-import { describe, it, beforeEach, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
 
 import { createHomeAssistantClient } from "../src/haClient.js";
+
+// Mirrors HA_RETRY.SNAPSHOT_COOLDOWN_MS in src/haClient.js, which is module
+// private. Tests advance past it to reach a second snapshot attempt.
+const HA_RETRY_SNAPSHOT_COOLDOWN_MS = 5 * 60 * 1000;
 
 describe("createHomeAssistantClient", () => {
   let originalFetch;
@@ -38,7 +42,7 @@ describe("createHomeAssistantClient", () => {
         status: current.status,
         json: async () => current.body,
         text: async () => JSON.stringify(current.body),
-        arrayBuffer: async () => Buffer.from(JSON.stringify(current.body)),
+        arrayBuffer: async () => current.arrayBuffer ?? Buffer.from(JSON.stringify(current.body)),
         headers: {
           get: () => current.contentType || "application/json",
         },
@@ -46,8 +50,26 @@ describe("createHomeAssistantClient", () => {
     });
   }
 
+  function makeControllableNow(startValue) {
+    let current = startValue;
+    const now = () => current;
+    now.advance = (ms) => {
+      current += ms;
+    };
+    return now;
+  }
+
+  function makeSleepSpy() {
+    const calls = [];
+    const sleep = async (ms) => {
+      calls.push(ms);
+    };
+    sleep.calls = calls;
+    return sleep;
+  }
+
   describe("getStates", () => {
-    it("llama a GET /states con las cabeceras correctas", async () => {
+    it("calls GET /states with the correct headers", async () => {
       const fakeStates = [{ entity_id: "light.test", state: "on" }];
       mockFetch(200, fakeStates);
 
@@ -66,7 +88,7 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(options.headers["Content-Type"], "application/json");
     });
 
-    it("lanza error si la respuesta no es OK", async () => {
+    it("throws when the response is not ok", async () => {
       mockFetch(401, { message: "Unauthorized" });
 
       const ha = createHomeAssistantClient({
@@ -81,7 +103,7 @@ describe("createHomeAssistantClient", () => {
   });
 
   describe("callService", () => {
-    it("envía POST con los datos de servicio", async () => {
+    it("sends a POST carrying the service data", async () => {
       mockFetch(200, []);
 
       const ha = createHomeAssistantClient({
@@ -94,17 +116,14 @@ describe("createHomeAssistantClient", () => {
       });
 
       const [url, options] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(
-        url,
-        "http://supervisor/core/api/services/light/turn_off"
-      );
+      assert.strictEqual(url, "http://supervisor/core/api/services/light/turn_off");
       assert.strictEqual(options.method, "POST");
       assert.deepStrictEqual(JSON.parse(options.body), {
         entity_id: "light.salon",
       });
     });
 
-    it("envía POST sin datos por defecto", async () => {
+    it("sends a POST with an empty payload by default", async () => {
       mockFetch(200, []);
 
       const ha = createHomeAssistantClient({
@@ -120,7 +139,7 @@ describe("createHomeAssistantClient", () => {
   });
 
   describe("camera methods", () => {
-    it("descarga snapshot de cámara como binario", async () => {
+    it("downloads a camera snapshot as binary", async () => {
       mockFetch(200, { image: true });
 
       const ha = createHomeAssistantClient({
@@ -131,16 +150,13 @@ describe("createHomeAssistantClient", () => {
       const result = await ha.getCameraSnapshot("camera.entrada");
 
       const [url, options] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(
-        url,
-        "http://supervisor/core/api/camera_proxy/camera.entrada"
-      );
+      assert.strictEqual(url, "http://supervisor/core/api/camera_proxy/camera.entrada");
       assert.ok(Buffer.isBuffer(result.buffer));
       assert.strictEqual(result.contentType, "application/json");
       assert.strictEqual(options.headers.Authorization, "Bearer test-token");
     });
 
-    it("usa fallback de snapshot cuando falla camera_proxy directo", async () => {
+    it("falls back to the snapshot service when the direct camera_proxy fails", async () => {
       mockFetchSequence([
         { status: 404, body: { message: "not found" } },
         { status: 500, body: { message: "proxy failed" } },
@@ -165,12 +181,14 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(url3, "http://supervisor/core/api/services/camera/snapshot");
       assert.strictEqual(options3.method, "POST");
       assert.ok(
-        url4.startsWith("http://supervisor/core/media/local/ha_status_bot_snapshot_camera_entrada_")
+        url4.startsWith(
+          "http://supervisor/core/media/local/ha_status_bot_snapshot_camera_entrada_",
+        ),
       );
       assert.ok(url4.endsWith(".jpg"));
     });
 
-    it("llama camera.record con duración y nombre de archivo", async () => {
+    it("calls camera.record with a duration and a file name", async () => {
       mockFetch(200, []);
 
       const ha = createHomeAssistantClient({
@@ -181,10 +199,7 @@ describe("createHomeAssistantClient", () => {
       const result = await ha.recordCameraClip("camera.patio", 30);
 
       const [url, options] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(
-        url,
-        "http://supervisor/core/api/services/camera/record"
-      );
+      assert.strictEqual(url, "http://supervisor/core/api/services/camera/record");
       assert.strictEqual(options.method, "POST");
 
       const payload = JSON.parse(options.body);
@@ -197,7 +212,7 @@ describe("createHomeAssistantClient", () => {
       assert.ok(result.publicPath.startsWith("/media/local/ha_status_bot_camera_patio_"));
     });
 
-    it("descarga media desde la URL raíz de Home Assistant", async () => {
+    it("downloads media from the Home Assistant root URL", async () => {
       mockFetch(200, { video: true });
 
       const ha = createHomeAssistantClient({
@@ -211,7 +226,7 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(url, "http://supervisor/core/media/local/clip.mp4");
     });
 
-    it("prueba rutas alternativas cuando no encuentra media", async () => {
+    it("tries alternative paths when the media file is not found", async () => {
       mockFetchSequence([
         { status: 404, body: { message: "not found" } },
         { status: 404, body: { message: "not found" } },
@@ -233,6 +248,98 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(u1, "http://supervisor/core/media/local/clip.mp4");
       assert.strictEqual(u2, "http://supervisor/core/media/clip.mp4");
       assert.strictEqual(u3, "http://supervisor/core/api/media_proxy/media/clip.mp4");
+    });
+  });
+
+  describe("camera snapshot retry and cooldown", () => {
+    it("retries HA_RETRY.ATTEMPTS times via the injected sleep before giving up, then pauses further attempts during the cooldown window", async () => {
+      mockFetchSequence([
+        { status: 404, body: { message: "not found" } },
+        { status: 500, body: { message: "proxy failed" } },
+        { status: 200, body: [] },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+      ]);
+
+      const sleep = makeSleepSpy();
+      const now = makeControllableNow(1_700_000_000_000);
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        sleep,
+        now,
+      });
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      assert.strictEqual(sleep.calls.length, 3);
+      assert.deepStrictEqual(sleep.calls, [1200, 1200, 1200]);
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
+
+      now.advance(1000);
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"), {
+        message: /Retry in \d+s/,
+      });
+
+      // The cooldown branch rejects without any new HA request.
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
+    });
+
+    it("keeps using the proxy path after an empty snapshot, and abandons it only when every proxy candidate raises a request error", async () => {
+      // Every proxy candidate answers 200 with an empty body: the endpoint is
+      // reachable, so the blank frame must be treated as transient.
+      mockFetchSequence([{ status: 200, body: {}, arrayBuffer: Buffer.alloc(0) }]);
+
+      const now = makeControllableNow(1_700_000_000_000);
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        sleep: makeSleepSpy(),
+        now,
+      });
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const firstCallCount = globalThis.fetch.mock.calls.length;
+      now.advance(HA_RETRY_SNAPSHOT_COOLDOWN_MS + 1);
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const [retriedUrl] = globalThis.fetch.mock.calls[firstCallCount].arguments;
+      assert.match(retriedUrl, /\/camera_proxy\/camera\.entrada$/);
+    });
+
+    it("stops using the proxy path once every proxy candidate raises a request error", async () => {
+      // Both proxy candidates fail outright, then the service fallback runs.
+      mockFetchSequence([
+        { status: 502, body: { message: "proxy down" } },
+        { status: 502, body: { message: "proxy down" } },
+        { status: 200, body: [] },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
+      ]);
+
+      const now = makeControllableNow(1_700_000_000_000);
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        sleep: makeSleepSpy(),
+        now,
+      });
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const firstCallCount = globalThis.fetch.mock.calls.length;
+      now.advance(HA_RETRY_SNAPSHOT_COOLDOWN_MS + 1);
+
+      await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
+
+      const [retriedUrl] = globalThis.fetch.mock.calls[firstCallCount].arguments;
+      assert.doesNotMatch(retriedUrl, /camera_proxy/);
     });
   });
 });
