@@ -1,6 +1,6 @@
 {
   "name": "ha-status-bot",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -14,12 +14,14 @@
     "lint:fix": "biome lint --write .",
     "format": "biome format --write .",
     "check": "biome check .",
-    "check:lang": "node scripts/check-lang.js"
+    "check:lang": "node scripts/check-lang.js",
+    "check:addon": "node scripts/check-addon-manifest.js"
   },
   "dependencies": {
     "node-telegram-bot-api": "^0.66.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.13"
+    "@biomejs/biome": "^2.5.13",
+    "yaml": "^2.9.1"
   }
 }

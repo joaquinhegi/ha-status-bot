@@ -1,5 +1,5 @@
 name: HA Status Bot
-version: "2.0.3"
+version: "2.0.4"
 slug: ha_status_bot
 description: Telegram bot to query Home Assistant lights, sensors, doors, batteries and temperatures
 url: "https://github.com/joaquinhegi/ha-status-bot"
@@ -21,5 +21,6 @@ options:
 
 schema:
   telegram_bot_token: password
-  allowed_chat_ids: list(str)
+  allowed_chat_ids:
+    - str
   low_battery_threshold_percent: int(0,100)

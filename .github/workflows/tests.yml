@@ -30,3 +30,6 @@ jobs:
 
       - name: Run language policy check
         run: npm run check:lang
+
+      - name: Validate the add-on manifest
+        run: npm run check:addon
