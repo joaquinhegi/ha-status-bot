@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.3
+
+Explains the options where you actually configure them, and stops sending you to
+a bot that cannot answer.
+
+A Home Assistant long-lived token pasted into `telegram_bot_token` turned out not
+to be carelessness: the Configuration screen showed one token field with no
+explanation, and this add-on never asks for a Home Assistant credential, so there
+was nothing on screen saying which token belonged there.
+
+- Added `translations/en.yaml`, so Home Assistant shows a name and a description
+  for every option in the add-on Configuration tab. `telegram_bot_token` now says
+  in the UI that it takes the BotFather token and never a Home Assistant one.
+- The invalid `allowed_chat_ids` message no longer tells you to send `/chatid` to
+  the bot. The add-on refuses to start while the option is invalid, so the bot
+  cannot reply. It now tells you to clear the option, start the add-on, ask for
+  your ID, and then fill it in.
+- The rejected-token message names why no Home Assistant credential is wanted:
+  `config.yaml` declares `homeassistant_api`, so the Supervisor injects one.
+
 ## 2.0.2
 
 Rejects a misconfigured add-on at startup instead of running in a state where it

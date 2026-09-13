@@ -1,0 +1,19 @@
+configuration:
+  telegram_bot_token:
+    name: Telegram bot token
+    description: >-
+      The token BotFather gives you when you create the bot, shaped like
+      123456789:AA... Do NOT paste a Home Assistant long-lived access token
+      here. This add-on never needs one — it declares homeassistant_api, so the
+      Supervisor supplies its own credential automatically.
+  allowed_chat_ids:
+    name: Allowed chat IDs
+    description: >-
+      Telegram chat IDs allowed to use the bot, one entry per ID. Group and
+      channel IDs are negative. Leave this empty to allow every chat — start the
+      add-on, send /chatid to the bot, then add the ID it replies with.
+  low_battery_threshold_percent:
+    name: Low battery threshold
+    description: >-
+      Battery percentage at or below which a device is reported as low by the
+      /battery command. Between 0 and 100.
