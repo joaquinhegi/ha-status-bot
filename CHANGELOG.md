@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- **`/switches`** — switch entities were not surfaced anywhere: no command listed
+  them and no keyboard offered them, so a switch in Home Assistant was invisible
+  to the bot. It now works exactly like `/lights`: one inline button per switch,
+  🟢 when on and ⚫ when off, turning it on or off in place and refreshing the
+  keyboard afterwards. Switches are covered by the same entity authorization gate
+  as lights and covers, so a callback naming a switch the bot never displayed is
+  rejected before any service call.
+
+### Fixed
+
+- **Camera videos and snapshots could not be retrieved.** Sending a recorded clip
+  failed with a 403 followed by three 404s. Home Assistant serves its media folder
+  through signed media-source URLs, so a request carrying only a bearer token is
+  refused — fetching media over HTTP never worked, and the four fallback paths the
+  add-on tried were four ways of being wrong.
+
+  The add-on now maps Home Assistant's media folder read-only and reads the file
+  off the mount, which is the supported route. **This needs no action from you**:
+  the mapping ships with the add-on.
+
+- The wait loop that polls while Home Assistant finishes writing a file decided
+  whether to keep waiting by matching the text `API error 404` in an error
+  message. Moving the read off HTTP would have made that string stop appearing, so
+  the loop would have given up on the first missing-file error instead of waiting.
+  Errors now carry an explicit flag.
+
 ## 2.0.4
 
 Fixes the add-on schema. `allowed_chat_ids` could not be configured at all since
