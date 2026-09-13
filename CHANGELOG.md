@@ -20,6 +20,17 @@ the old comma-separated string, rejected it, and exited — repeatedly.
   including when it arrives as `null`.
 - A shape that cannot be interpreted is still rejected, but the message now
   names the fix instead of only the rule.
+- `telegram_bot_token` is now checked for the shape BotFather issues. A Home
+  Assistant long-lived token pasted into this field is named as such instead of
+  being accepted, which previously let the add-on start and then answer every
+  Telegram call with 404. The rejected value never appears in the log.
+- `allowed_chat_ids` entries must now look like chat IDs. A value such as the
+  literal `str` was previously accepted as a one-entry list, so the add-on
+  started cleanly and matched no chat at all.
+- Startup no longer reports success when it failed. `deleteWebHook` rejections
+  were unhandled and skipped `startPolling` entirely, so the add-on logged a
+  successful start and then received nothing. Polling now starts regardless, and
+  a token Telegram rejects is reported as such.
 - The entrypoint guard no longer throws when `process.argv[1]` is absent.
 
 ## 2.0.0
