@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { createTelegramBot } from "../src/telegram.js";
+import { createTelegramBot, entityToken } from "../src/telegram.js";
 import { FakeTelegramBot, makeCallbackQuery } from "./helpers/fakeTelegramBot.js";
 
 const noopLogger = { log() {}, warn() {}, error() {} };
@@ -262,8 +262,8 @@ describe("createTelegramBot /lights command", () => {
     const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
     assert.strictEqual(keyboard.length, lights.length);
     const callbackDataValues = keyboard.map((row) => row[0].callback_data);
-    assert.ok(callbackDataValues.includes("light_off:light.kitchen"));
-    assert.ok(callbackDataValues.includes("light_on:light.hall"));
+    assert.ok(callbackDataValues.includes(`light_off:${entityToken("light.kitchen")}`));
+    assert.ok(callbackDataValues.includes(`light_on:${entityToken("light.hall")}`));
   });
 
   it("replies without an inline keyboard when there are no lights", async () => {
@@ -330,8 +330,8 @@ describe("createTelegramBot /switches command", () => {
 
     const rows = bot.sentMessages[0].options.reply_markup.inline_keyboard.flat();
     const payloads = rows.map((button) => button.callback_data);
-    assert.ok(payloads.includes("switch_off:switch.boiler"));
-    assert.ok(payloads.includes("switch_on:switch.fan"));
+    assert.ok(payloads.includes(`switch_off:${entityToken("switch.boiler")}`));
+    assert.ok(payloads.includes(`switch_on:${entityToken("switch.fan")}`));
   });
 
   it("ignores entities from other domains", async () => {
@@ -346,7 +346,7 @@ describe("createTelegramBot /switches command", () => {
 
     const rows = bot.sentMessages[0].options.reply_markup.inline_keyboard.flat();
     assert.strictEqual(rows.length, 1);
-    assert.strictEqual(rows[0].callback_data, "switch_on:switch.boiler");
+    assert.strictEqual(rows[0].callback_data, `switch_on:${entityToken("switch.boiler")}`);
   });
 
   it("replies with the empty state when no switch exists", async () => {
@@ -363,7 +363,10 @@ describe("createTelegramBot switch callbacks", () => {
   it("calls switch.turn_on for an offered switch that is off", async () => {
     const { bot, ha } = setup({ states: [makeSwitchEntity("fan", "off")], allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "switch_on:switch.fan" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `switch_on:${entityToken("switch.fan")}` }),
+    );
 
     assert.strictEqual(ha.calls.callService.length, 1);
     assert.deepStrictEqual(ha.calls.callService[0], {
@@ -376,7 +379,10 @@ describe("createTelegramBot switch callbacks", () => {
   it("calls switch.turn_off for an offered switch that is on", async () => {
     const { bot, ha } = setup({ states: [makeSwitchEntity("boiler", "on")], allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "switch_off:switch.boiler" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `switch_off:${entityToken("switch.boiler")}` }),
+    );
 
     assert.strictEqual(ha.calls.callService.length, 1);
     assert.strictEqual(ha.calls.callService[0].service, "turn_off");
@@ -390,7 +396,7 @@ describe("createTelegramBot switch callbacks", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "switch_on:switch.neighbour_heater" }),
+      makeCallbackQuery({ data: `switch_on:${entityToken("switch.neighbour_heater")}` }),
     );
 
     assert.strictEqual(ha.calls.callService.length, 0);
@@ -399,7 +405,10 @@ describe("createTelegramBot switch callbacks", () => {
   it("refreshes the switch keyboard after acting", async () => {
     const { bot } = setup({ states: [makeSwitchEntity("fan", "off")], allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "switch_on:switch.fan" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `switch_on:${entityToken("switch.fan")}` }),
+    );
 
     assert.strictEqual(bot.editedReplyMarkups.length, 1);
   });
@@ -427,8 +436,8 @@ describe("createTelegramBot /covers command", () => {
     const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
     assert.strictEqual(keyboard.length, covers.length);
     const callbackDataValues = keyboard.map((row) => row[0].callback_data);
-    assert.ok(callbackDataValues.includes("cover_open:cover.garage"));
-    assert.ok(callbackDataValues.includes("cover_close:cover.gate"));
+    assert.ok(callbackDataValues.includes(`cover_open:${entityToken("cover.garage")}`));
+    assert.ok(callbackDataValues.includes(`cover_close:${entityToken("cover.gate")}`));
   });
 
   it("replies without an inline keyboard when there are no covers", async () => {
@@ -487,8 +496,8 @@ describe("createTelegramBot /cameras command", () => {
     const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
     assert.strictEqual(keyboard.length, cameras.length);
     const callbackDataValues = keyboard.map((row) => row[0].callback_data);
-    assert.ok(callbackDataValues.includes("camera_pick:camera.front"));
-    assert.ok(callbackDataValues.includes("camera_pick:camera.back"));
+    assert.ok(callbackDataValues.includes(`camera_pick:${entityToken("camera.front")}`));
+    assert.ok(callbackDataValues.includes(`camera_pick:${entityToken("camera.back")}`));
   });
 
   it("replies without an inline keyboard when there are no cameras", async () => {
@@ -578,7 +587,10 @@ describe("createTelegramBot callback_query dispatch", () => {
     const lights = [makeLightEntity("kitchen", "off"), makeLightEntity("hall", "off")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_on:light.kitchen" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `light_on:${entityToken("light.kitchen")}` }),
+    );
 
     assert.strictEqual(ha.calls.callService.length, 1);
     assert.deepStrictEqual(ha.calls.callService[0], {
@@ -591,14 +603,17 @@ describe("createTelegramBot callback_query dispatch", () => {
     const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
     assert.strictEqual(keyboard.length, lights.length);
     const callbackDataValues = keyboard.map((row) => row[0].callback_data);
-    assert.ok(callbackDataValues.includes("light_on:light.kitchen"));
+    assert.ok(callbackDataValues.includes(`light_on:${entityToken("light.kitchen")}`));
   });
 
   it("light_off calls callService turn_off and refreshes the light keyboard", async () => {
     const lights = [makeLightEntity("kitchen", "on")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_off:light.kitchen" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `light_off:${entityToken("light.kitchen")}` }),
+    );
 
     assert.deepStrictEqual(ha.calls.callService[0], {
       domain: "light",
@@ -607,14 +622,17 @@ describe("createTelegramBot callback_query dispatch", () => {
     });
     const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
     assert.strictEqual(keyboard.length, 1);
-    assert.strictEqual(keyboard[0][0].callback_data, "light_off:light.kitchen");
+    assert.strictEqual(keyboard[0][0].callback_data, `light_off:${entityToken("light.kitchen")}`);
   });
 
   it("cover_open calls callService open_cover and refreshes the cover keyboard", async () => {
     const covers = [makeCoverEntity("garage", "closed")];
     const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "cover_open:cover.garage" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `cover_open:${entityToken("cover.garage")}` }),
+    );
 
     assert.deepStrictEqual(ha.calls.callService[0], {
       domain: "cover",
@@ -623,14 +641,17 @@ describe("createTelegramBot callback_query dispatch", () => {
     });
     const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
     assert.strictEqual(keyboard.length, 1);
-    assert.strictEqual(keyboard[0][0].callback_data, "cover_open:cover.garage");
+    assert.strictEqual(keyboard[0][0].callback_data, `cover_open:${entityToken("cover.garage")}`);
   });
 
   it("cover_close calls callService close_cover and refreshes the cover keyboard", async () => {
     const covers = [makeCoverEntity("garage", "open")];
     const { bot, ha } = setup({ states: covers, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "cover_close:cover.garage" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `cover_close:${entityToken("cover.garage")}` }),
+    );
 
     assert.deepStrictEqual(ha.calls.callService[0], {
       domain: "cover",
@@ -639,20 +660,23 @@ describe("createTelegramBot callback_query dispatch", () => {
     });
     const keyboard = bot.editedReplyMarkups[0].replyMarkup.inline_keyboard;
     assert.strictEqual(keyboard.length, 1);
-    assert.strictEqual(keyboard[0][0].callback_data, "cover_close:cover.garage");
+    assert.strictEqual(keyboard[0][0].callback_data, `cover_close:${entityToken("cover.garage")}`);
   });
 
   it("camera_pick edits the message with a 3-row options keyboard for the selected camera", async () => {
     const cameras = [makeCameraEntity("front")];
     const { bot } = setup({ states: cameras, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_pick:camera.front" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_pick:${entityToken("camera.front")}` }),
+    );
 
     assert.strictEqual(bot.editedTexts.length, 1);
     const keyboard = bot.editedTexts[0].options.reply_markup.inline_keyboard;
     assert.strictEqual(keyboard.length, 3);
-    assert.strictEqual(keyboard[0][0].callback_data, "camera_img:camera.front");
-    assert.strictEqual(keyboard[1][0].callback_data, "camera_vid30:camera.front");
+    assert.strictEqual(keyboard[0][0].callback_data, `camera_img:${entityToken("camera.front")}`);
+    assert.strictEqual(keyboard[1][0].callback_data, `camera_vid30:${entityToken("camera.front")}`);
     assert.strictEqual(keyboard[2][0].callback_data, "camera_list");
   });
 
@@ -666,8 +690,8 @@ describe("createTelegramBot callback_query dispatch", () => {
     const keyboard = bot.editedTexts[0].options.reply_markup.inline_keyboard;
     assert.strictEqual(keyboard.length, cameras.length);
     const callbackDataValues = keyboard.map((row) => row[0].callback_data);
-    assert.ok(callbackDataValues.includes("camera_pick:camera.front"));
-    assert.ok(callbackDataValues.includes("camera_pick:camera.back"));
+    assert.ok(callbackDataValues.includes(`camera_pick:${entityToken("camera.front")}`));
+    assert.ok(callbackDataValues.includes(`camera_pick:${entityToken("camera.back")}`));
   });
 });
 
@@ -676,7 +700,10 @@ describe("createTelegramBot camera media flows", () => {
     const cameras = [makeCameraEntity("front")];
     const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_img:camera.front" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_img:${entityToken("camera.front")}` }),
+    );
 
     assert.strictEqual(ha.calls.getCameraSnapshot.length, 1);
     assert.strictEqual(ha.calls.getCameraSnapshot[0], "camera.front");
@@ -688,7 +715,10 @@ describe("createTelegramBot camera media flows", () => {
     const cameras = [makeCameraEntity("front")];
     const { bot, ha } = setup({ states: cameras, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_vid30:camera.front" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_vid30:${entityToken("camera.front")}` }),
+    );
 
     assert.strictEqual(ha.calls.recordCameraClip.length, 1);
     assert.deepStrictEqual(ha.calls.recordCameraClip[0], {
@@ -715,7 +745,10 @@ describe("createTelegramBot camera media flows", () => {
       },
     });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_vid30:camera.front" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_vid30:${entityToken("camera.front")}` }),
+    );
 
     assert.strictEqual(bot.sentVideos.length, 0);
     assert.strictEqual(bot.sentPhotos.length, 1);
@@ -729,7 +762,10 @@ describe("createTelegramBot camera media flows", () => {
       throw new Error("sendPhoto unavailable");
     };
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_img:camera.front" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_img:${entityToken("camera.front")}` }),
+    );
 
     assert.strictEqual(bot.sentPhotos.length, 0);
     assert.strictEqual(bot.sentDocuments.length, 1);
@@ -742,7 +778,10 @@ describe("createTelegramBot camera media flows", () => {
       throw new Error("sendVideo unavailable");
     };
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "camera_vid30:camera.front" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_vid30:${entityToken("camera.front")}` }),
+    );
 
     assert.strictEqual(bot.sentVideos.length, 0);
     assert.strictEqual(bot.sentDocuments.length, 1);
@@ -756,7 +795,7 @@ describe("createTelegramBot callback_query allow-list gate", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 999 }),
+      makeCallbackQuery({ data: `light_on:${entityToken("light.kitchen")}`, chatId: 999 }),
     );
 
     assert.strictEqual(ha.calls.getStates, 0);
@@ -771,7 +810,7 @@ describe("createTelegramBot callback_query allow-list gate", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 42 }),
+      makeCallbackQuery({ data: `light_on:${entityToken("light.kitchen")}`, chatId: 42 }),
     );
 
     assert.strictEqual(ha.calls.callService.length, 1);
@@ -782,7 +821,10 @@ describe("createTelegramBot callback_query unknown action", () => {
   it("answers the callback without calling any HA service or editing the message", async () => {
     const { bot, ha } = setup({ states: [], allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "not_a_real_action:foo.bar" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `not_a_real_action:${entityToken("foo.bar")}` }),
+    );
 
     assert.strictEqual(ha.calls.callService.length, 0);
     assert.strictEqual(bot.answeredCallbacks.length, 1);
@@ -827,7 +869,7 @@ describe("createTelegramBot callback_query outer error handler", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: `light_on:${entityId}`, chatId: 5, messageId: 9 }),
+      makeCallbackQuery({ data: `light_on:${entityToken(entityId)}`, chatId: 5, messageId: 9 }),
     );
 
     assert.strictEqual(getStatesCalls, 2);
@@ -839,6 +881,62 @@ describe("createTelegramBot callback_query outer error handler", () => {
   });
 });
 
+describe("createTelegramBot callback_data bounds", () => {
+  // Telegram refuses a callback_data over 64 bytes and rejects the WHOLE
+  // message when one button breaks it, so a single long entity ID used to make
+  // an entire keyboard unsendable. Entity IDs are unbounded; smart plug
+  // integrations routinely generate very long ones.
+  const LONG_ENTITY = "switch.termotanque_electrico_del_lavadero_proteccion_sobrecarga";
+
+  it("keeps every callback_data within Telegram's 64-byte limit for a long entity ID", async () => {
+    const states = [
+      { entity_id: LONG_ENTITY, state: "off", attributes: { friendly_name: "Termotanque" } },
+    ];
+    const { bot } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitText("/switches", 1);
+
+    const buttons = bot.sentMessages[0].options.reply_markup.inline_keyboard.flat();
+    assert.strictEqual(buttons.length, 1);
+    assert.ok(Buffer.byteLength(buttons[0].callback_data, "utf8") <= 64);
+
+    // The raw ID alone would already have exceeded the limit with its prefix.
+    assert.ok(Buffer.byteLength(`switch_on:${LONG_ENTITY}`, "utf8") > 64);
+  });
+
+  it("still operates the right entity when the ID is too long to travel in the payload", async () => {
+    const states = [
+      { entity_id: LONG_ENTITY, state: "off", attributes: { friendly_name: "Termotanque" } },
+    ];
+    const { bot, ha } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `switch_on:${entityToken(LONG_ENTITY)}` }),
+    );
+
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "switch",
+      service: "turn_on",
+      data: { entity_id: LONG_ENTITY },
+    });
+  });
+
+  // Buttons rendered before 2.1.1 carry the entity ID itself. They no longer
+  // resolve, and telling someone their keyboard is stale beats a bare refusal.
+  it("tells the user a pre-2.1.1 keyboard is stale instead of calling a service", async () => {
+    const { bot, ha } = setup({
+      states: [makeLightEntity("kitchen", "off")],
+      allowedChatIds: [],
+    });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_on:light.kitchen" }));
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+    assert.match(bot.answeredCallbacks[0].options.text, /older version/);
+  });
+});
+
 describe("createTelegramBot entity authorization gate", () => {
   it("rejects an entity_id never offered in a light keyboard, calling no HA service", async () => {
     const lights = [makeLightEntity("kitchen", "off")];
@@ -846,7 +944,7 @@ describe("createTelegramBot entity authorization gate", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "light_on:light.not_offered" }),
+      makeCallbackQuery({ data: `light_on:${entityToken("light.not_offered")}` }),
     );
 
     assert.strictEqual(ha.calls.callService.length, 0);
@@ -869,7 +967,7 @@ describe("createTelegramBot entity authorization gate", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "cover_open:cover.not_offered" }),
+      makeCallbackQuery({ data: `cover_open:${entityToken("cover.not_offered")}` }),
     );
 
     assert.strictEqual(ha.calls.callService.length, 0);
@@ -882,7 +980,7 @@ describe("createTelegramBot entity authorization gate", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "camera_pick:camera.not_offered" }),
+      makeCallbackQuery({ data: `camera_pick:${entityToken("camera.not_offered")}` }),
     );
 
     assert.strictEqual(bot.editedTexts.length, 0);
@@ -893,7 +991,10 @@ describe("createTelegramBot entity authorization gate", () => {
     const lights = [makeLightEntity("kitchen", "off")];
     const { bot, ha } = setup({ states: lights, allowedChatIds: [] });
 
-    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "light_on:light.kitchen" }));
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `light_on:${entityToken("light.kitchen")}` }),
+    );
 
     assert.strictEqual(ha.calls.callService.length, 1);
   });
@@ -1046,7 +1147,7 @@ describe("user-facing copy", () => {
 
     await bot.emitEvent(
       "callback_query",
-      makeCallbackQuery({ data: "light_on:light.kitchen", chatId: 999 }),
+      makeCallbackQuery({ data: `light_on:${entityToken("light.kitchen")}`, chatId: 999 }),
     );
 
     assert.match(bot.answeredCallbacks[0].options.text, /[Nn]ot authorized/);
