@@ -9,6 +9,7 @@ import {
   getAllCameras,
   getAllCovers,
   getAllLights,
+  getAllSwitches,
 } from "./formatter.js";
 import { CAMERA_CLIP_DURATION_SECONDS } from "./haClient.js";
 
@@ -57,6 +58,21 @@ function buildLightKeyboard(lights) {
       {
         text: `${icon} ${light.name} → ${actionLabel}`,
         callback_data: `${action}:${light.entity_id}`,
+      },
+    ];
+  });
+}
+
+function buildSwitchKeyboard(switches) {
+  return switches.map((item) => {
+    const isOn = item.state === "on";
+    const icon = isOn ? "🟢" : "⚫";
+    const actionLabel = isOn ? "Turn off" : "Turn on";
+    const action = isOn ? "switch_off" : "switch_on";
+    return [
+      {
+        text: `${icon} ${item.name} → ${actionLabel}`,
+        callback_data: `${action}:${item.entity_id}`,
       },
     ];
   });
@@ -245,6 +261,8 @@ const ENTITY_ID_SHAPE = /^[a-z_]+\.[a-z0-9_]+$/;
 const OFFERED_ENTITY_SELECTORS = {
   light_on: getAllLights,
   light_off: getAllLights,
+  switch_on: getAllSwitches,
+  switch_off: getAllSwitches,
   cover_open: getAllCovers,
   cover_close: getAllCovers,
   camera_pick: getAllCameras,
@@ -375,6 +393,7 @@ export function createTelegramBot({
         "Available commands:",
         "/status - General summary",
         "/lights - Lights (turn on/off)",
+        "/switches - Switches (turn on/off)",
         "/covers - Covers (open/close)",
         "/cameras - Camera selection",
         "/sensors - Active sensors",
@@ -402,6 +421,7 @@ export function createTelegramBot({
         "Commands:",
         "/status",
         "/lights",
+        "/switches",
         "/cameras",
         "/sensors",
         "/doors",
@@ -443,6 +463,26 @@ export function createTelegramBot({
       keyboardBuilder: buildLightKeyboard,
       emptyMessage: "💡 No lights available.",
       listMessage: "💡 Lights:",
+    });
+  });
+
+  bot.onText(/\/switches/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`[Telegram] /switches from chat_id=${chatId}`);
+
+    if (!isAllowed(chatId, allowedChatIds)) {
+      console.log(`[Telegram] Unauthorized chat: ${chatId}`);
+      await bot.sendMessage(chatId, `Not authorized. Your chat_id is: ${chatId}`);
+      return;
+    }
+
+    await replyWithEntityKeyboard(bot, chatId, ha, {
+      commandLabel: "/switches",
+      entityNoun: "switches",
+      selector: getAllSwitches,
+      keyboardBuilder: buildSwitchKeyboard,
+      emptyMessage: "🔌 No switches available.",
+      listMessage: "🔌 Switches:",
     });
   });
 
@@ -574,6 +614,14 @@ export function createTelegramBot({
         await ha.callService("light", "turn_off", { entity_id: entityId });
         console.log(`[Telegram] Light turned off: ${entityId}`);
         await answer("💡 Light turned off");
+      } else if (action === "switch_on") {
+        await ha.callService("switch", "turn_on", { entity_id: entityId });
+        console.log(`[Telegram] Switch turned on: ${entityId}`);
+        await answer("🔌 Switch turned on");
+      } else if (action === "switch_off") {
+        await ha.callService("switch", "turn_off", { entity_id: entityId });
+        console.log(`[Telegram] Switch turned off: ${entityId}`);
+        await answer("🔌 Switch turned off");
       } else if (action === "cover_open") {
         await ha.callService("cover", "open_cover", { entity_id: entityId });
         console.log(`[Telegram] Cover opened: ${entityId}`);
@@ -686,6 +734,12 @@ export function createTelegramBot({
       // empty-state reply, and shares this handler's own try/catch below.
       if (action.startsWith("light_")) {
         const { keyboard } = await fetchEntityKeyboard(ha, getAllLights, buildLightKeyboard);
+        await bot.editMessageReplyMarkup(
+          { inline_keyboard: keyboard },
+          { chat_id: chatId, message_id: query.message.message_id },
+        );
+      } else if (action.startsWith("switch_")) {
+        const { keyboard } = await fetchEntityKeyboard(ha, getAllSwitches, buildSwitchKeyboard);
         await bot.editMessageReplyMarkup(
           { inline_keyboard: keyboard },
           { chat_id: chatId, message_id: query.message.message_id },
