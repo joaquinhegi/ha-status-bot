@@ -159,7 +159,9 @@ async function waitForMediaFile(ha, mediaPath, timeoutMs = 45000, intervalMs = 2
       lastError = new Error("Empty media file");
     } catch (error) {
       lastError = error;
-      if (!String(error.message || "").includes("API error 404")) {
+      // Keep polling only while Home Assistant has not finished writing the
+      // file. Anything else is a real failure and must surface immediately.
+      if (!error.mediaNotFound) {
         throw error;
       }
     }

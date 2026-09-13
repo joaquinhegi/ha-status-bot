@@ -1,7 +1,55 @@
+import { readFile } from "node:fs/promises";
+
 // Single source of truth for the camera clip length, shared with
 // src/telegram.js so the recorded duration and every user-facing string that
 // mentions it can never drift apart.
 export const CAMERA_CLIP_DURATION_SECONDS = 30;
+
+// config.yaml maps Home Assistant's media folder here. camera.record and
+// camera.snapshot write into that same folder from Home Assistant's side, so
+// the add-on reads the file straight off the mount.
+//
+// Fetching it over HTTP does not work and never did: Home Assistant serves the
+// media folder through signed media-source URLs, so a request carrying only a
+// bearer token is answered 403, and every /api/media_proxy/... spelling is a
+// 404. The add-on mount is the supported path.
+const MEDIA_MOUNT = "/media";
+
+const MEDIA_CONTENT_TYPES = Object.freeze({
+  ".mp4": "video/mp4",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+});
+
+function mediaContentType(path) {
+  const dot = path.lastIndexOf(".");
+  const extension = dot === -1 ? "" : path.slice(dot).toLowerCase();
+  return MEDIA_CONTENT_TYPES[extension] || "application/octet-stream";
+}
+
+// Home Assistant names the same file two ways: camera.record writes to
+// /media/<name>, while the media source refers to it as /media/local/<name>.
+// Both resolve to one file on the mapped mount.
+export function resolveMediaMountPath(mediaPath) {
+  const normalized = mediaPath.startsWith("/") ? mediaPath : `/${mediaPath}`;
+  const relative = normalized.replace(/^\/media\/local\//, "").replace(/^\/media\//, "");
+  return `${MEDIA_MOUNT}/${relative}`;
+}
+
+function mediaNotReady(message) {
+  const error = new Error(message);
+  // Callers poll until Home Assistant finishes writing the file. They must not
+  // decide that by matching on an error message: this used to test for the
+  // literal text "API error 404", which silently stopped being true the moment
+  // the read moved off HTTP.
+  error.mediaNotFound = true;
+  return error;
+}
+
+async function defaultReadMediaFile(path) {
+  return readFile(path);
+}
 
 const HA_RETRY = Object.freeze({
   ATTEMPTS: 3,
@@ -20,6 +68,7 @@ export function createHomeAssistantClient({
   sleep = defaultSleep,
   now = Date.now,
   logger = console,
+  readMediaFile = defaultReadMediaFile,
 }) {
   const rootUrl = baseUrl.replace(/\/api\/?$/, "");
   const cameraProxyUnavailable = new Set();
@@ -209,7 +258,7 @@ export function createHomeAssistantClient({
     });
 
     try {
-      return await retryForNonEmpty(() => getMediaFile(publicPath, { onlyOriginalPath: true }), {
+      return await retryForNonEmpty(() => getMediaFile(publicPath), {
         attempts: HA_RETRY.ATTEMPTS,
         delayMs: HA_RETRY.DELAY_MS,
       });
@@ -239,28 +288,27 @@ export function createHomeAssistantClient({
     };
   }
 
-  async function getMediaFile(mediaPath, options = {}) {
-    const onlyOriginalPath = options.onlyOriginalPath === true;
-    const normalizedPath = mediaPath.startsWith("/") ? mediaPath : `/${mediaPath}`;
-    const candidatePaths = onlyOriginalPath
-      ? [normalizedPath]
-      : [
-          normalizedPath,
-          normalizedPath.startsWith("/media/local/")
-            ? normalizedPath.replace("/media/local/", "/media/")
-            : normalizedPath,
-          normalizedPath.startsWith("/media/local/")
-            ? normalizedPath.replace("/media/local/", "/api/media_proxy/media/")
-            : normalizedPath,
-          normalizedPath.startsWith("/media/")
-            ? normalizedPath.replace("/media/", "/api/media_proxy/media/")
-            : normalizedPath,
-        ];
+  async function getMediaFile(mediaPath) {
+    const path = resolveMediaMountPath(mediaPath);
+    let buffer;
 
-    return fetchFirstNonEmpty(
-      candidatePaths.map((path) => ({ path, useApiBase: false })),
-      "media file",
-    );
+    try {
+      buffer = await readMediaFile(path);
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw mediaNotReady(`Media file ${path} is not on the mount yet`);
+      }
+
+      logger.error(`[HA API] Could not read media file at ${path}:`, error.message);
+      throw error;
+    }
+
+    if (!buffer?.length) {
+      throw mediaNotReady(`Media file ${path} is still empty`);
+    }
+
+    logger.log(`[HA API] Read media file ${path} (${buffer.length} bytes)`);
+    return { buffer, contentType: mediaContentType(path) };
   }
 
   return {

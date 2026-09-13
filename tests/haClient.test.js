@@ -59,6 +59,23 @@ describe("createHomeAssistantClient", () => {
     return now;
   }
 
+  // Stands in for the mapped /media mount. Keys are absolute container paths.
+  function makeMediaMount(files = {}) {
+    const reads = [];
+    const readMediaFile = async (path) => {
+      reads.push(path);
+      const content = files[path];
+      if (content === undefined) {
+        const error = new Error("ENOENT");
+        error.code = "ENOENT";
+        throw error;
+      }
+      return content;
+    };
+    readMediaFile.reads = reads;
+    return readMediaFile;
+  }
+
   function makeSleepSpy() {
     const calls = [];
     const sleep = async (ms) => {
@@ -156,36 +173,44 @@ describe("createHomeAssistantClient", () => {
       assert.strictEqual(options.headers.Authorization, "Bearer test-token");
     });
 
-    it("falls back to the snapshot service when the direct camera_proxy fails", async () => {
+    it("falls back to the snapshot service and reads the file off the media mount", async () => {
       mockFetchSequence([
         { status: 404, body: { message: "not found" } },
         { status: 500, body: { message: "proxy failed" } },
         { status: 200, body: [] },
-        { status: 200, body: { image: true } },
       ]);
+
+      // The snapshot filename carries a timestamp, so the mount answers any
+      // path rather than one spelled out here.
+      const reads = [];
+      const readMediaFile = async (path) => {
+        reads.push(path);
+        return Buffer.from("snapshot-bytes");
+      };
 
       const ha = createHomeAssistantClient({
         baseUrl: "http://supervisor/core/api",
         token: "test-token",
+        readMediaFile,
       });
 
       const result = await ha.getCameraSnapshot("camera.entrada");
       assert.ok(Buffer.isBuffer(result.buffer));
+      assert.strictEqual(result.contentType, "image/jpeg");
 
       const [url1] = globalThis.fetch.mock.calls[0].arguments;
       const [url2] = globalThis.fetch.mock.calls[1].arguments;
       const [url3, options3] = globalThis.fetch.mock.calls[2].arguments;
-      const [url4] = globalThis.fetch.mock.calls[3].arguments;
       assert.strictEqual(url1, "http://supervisor/core/api/camera_proxy/camera.entrada");
       assert.strictEqual(url2, "http://supervisor/core/api/camera_proxy/camera.entrada");
       assert.strictEqual(url3, "http://supervisor/core/api/services/camera/snapshot");
       assert.strictEqual(options3.method, "POST");
-      assert.ok(
-        url4.startsWith(
-          "http://supervisor/core/media/local/ha_status_bot_snapshot_camera_entrada_",
-        ),
-      );
-      assert.ok(url4.endsWith(".jpg"));
+
+      // Only three HTTP calls: reading the file is no longer one of them.
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 3);
+      assert.strictEqual(reads.length, 1);
+      assert.ok(reads[0].startsWith("/media/ha_status_bot_snapshot_camera_entrada_"));
+      assert.ok(reads[0].endsWith(".jpg"));
     });
 
     it("calls camera.record with a duration and a file name", async () => {
@@ -212,42 +237,54 @@ describe("createHomeAssistantClient", () => {
       assert.ok(result.publicPath.startsWith("/media/local/ha_status_bot_camera_patio_"));
     });
 
-    it("downloads media from the Home Assistant root URL", async () => {
-      mockFetch(200, { video: true });
+    it("reads a media file off the mapped mount instead of over HTTP", async () => {
+      mockFetch(200, {});
+      const readMediaFile = makeMediaMount({ "/media/clip.mp4": Buffer.from("video-bytes") });
 
       const ha = createHomeAssistantClient({
         baseUrl: "http://supervisor/core/api",
         token: "test-token",
-      });
-
-      await ha.getMediaFile("/media/local/clip.mp4");
-
-      const [url] = globalThis.fetch.mock.calls[0].arguments;
-      assert.strictEqual(url, "http://supervisor/core/media/local/clip.mp4");
-    });
-
-    it("tries alternative paths when the media file is not found", async () => {
-      mockFetchSequence([
-        { status: 404, body: { message: "not found" } },
-        { status: 404, body: { message: "not found" } },
-        { status: 200, body: { video: true } },
-      ]);
-
-      const ha = createHomeAssistantClient({
-        baseUrl: "http://supervisor/core/api",
-        token: "test-token",
+        readMediaFile,
       });
 
       const result = await ha.getMediaFile("/media/local/clip.mp4");
-      assert.ok(Buffer.isBuffer(result.buffer));
 
-      const [u1] = globalThis.fetch.mock.calls[0].arguments;
-      const [u2] = globalThis.fetch.mock.calls[1].arguments;
-      const [u3] = globalThis.fetch.mock.calls[2].arguments;
+      assert.deepStrictEqual(result.buffer, Buffer.from("video-bytes"));
+      assert.strictEqual(result.contentType, "video/mp4");
+      assert.deepStrictEqual(readMediaFile.reads, ["/media/clip.mp4"]);
+      // Home Assistant answers a bearer-token request for media with 403, so a
+      // media read must never reach the network.
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 0);
+    });
 
-      assert.strictEqual(u1, "http://supervisor/core/media/local/clip.mp4");
-      assert.strictEqual(u2, "http://supervisor/core/media/clip.mp4");
-      assert.strictEqual(u3, "http://supervisor/core/api/media_proxy/media/clip.mp4");
+    it("marks a missing media file as not-ready so callers keep polling", async () => {
+      const readMediaFile = makeMediaMount({});
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        readMediaFile,
+      });
+
+      await assert.rejects(
+        () => ha.getMediaFile("/media/local/missing.mp4"),
+        (error) => error.mediaNotFound === true,
+      );
+    });
+
+    it("marks an empty media file as not-ready rather than returning it", async () => {
+      const readMediaFile = makeMediaMount({ "/media/clip.mp4": Buffer.alloc(0) });
+
+      const ha = createHomeAssistantClient({
+        baseUrl: "http://supervisor/core/api",
+        token: "test-token",
+        readMediaFile,
+      });
+
+      await assert.rejects(
+        () => ha.getMediaFile("/media/clip.mp4"),
+        (error) => error.mediaNotFound === true,
+      );
     });
   });
 
@@ -257,26 +294,30 @@ describe("createHomeAssistantClient", () => {
         { status: 404, body: { message: "not found" } },
         { status: 500, body: { message: "proxy failed" } },
         { status: 200, body: [] },
-        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
-        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
-        { status: 200, body: {}, arrayBuffer: Buffer.alloc(0) },
       ]);
 
       const sleep = makeSleepSpy();
       const now = makeControllableNow(1_700_000_000_000);
+      // The snapshot never lands on the mount, so every retry finds nothing.
+      const readMediaFile = makeMediaMount({});
 
       const ha = createHomeAssistantClient({
         baseUrl: "http://supervisor/core/api",
         token: "test-token",
         sleep,
         now,
+        readMediaFile,
       });
 
       await assert.rejects(() => ha.getCameraSnapshot("camera.entrada"));
 
       assert.strictEqual(sleep.calls.length, 3);
       assert.deepStrictEqual(sleep.calls, [1200, 1200, 1200]);
-      assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
+
+      // Two proxy candidates plus the snapshot service. The three retries read
+      // the mount instead of the network, which is the whole point of the fix.
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 3);
+      assert.strictEqual(readMediaFile.reads.length, 3);
 
       now.advance(1000);
 
@@ -284,8 +325,9 @@ describe("createHomeAssistantClient", () => {
         message: /Retry in \d+s/,
       });
 
-      // The cooldown branch rejects without any new HA request.
-      assert.strictEqual(globalThis.fetch.mock.calls.length, 6);
+      // The cooldown branch rejects without any new HA request or mount read.
+      assert.strictEqual(globalThis.fetch.mock.calls.length, 3);
+      assert.strictEqual(readMediaFile.reads.length, 3);
     });
 
     it("keeps using the proxy path after an empty snapshot, and abandons it only when every proxy candidate raises a request error", async () => {

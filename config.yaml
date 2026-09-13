@@ -14,6 +14,15 @@ init: false
 
 homeassistant_api: true
 
+# camera.record and camera.snapshot write into Home Assistant media folder.
+# Mapping it here lets the add-on read those files off the mount; fetching them
+# over HTTP is answered 403, because Home Assistant serves media through signed
+# media-source URLs rather than bearer tokens. Read-only: Home Assistant writes
+# the files, the add-on only reads them.
+map:
+  - type: media
+    read_only: true
+
 options:
   telegram_bot_token: ""
   allowed_chat_ids: []
