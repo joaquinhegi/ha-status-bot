@@ -187,6 +187,22 @@ describe("loadConfig", () => {
     );
   });
 
+  // The add-on refuses to start while this option is invalid, so telling the
+  // operator to ask the bot for their chat ID sends them to something that
+  // cannot answer. Clearing the option is the only exit from this state.
+  it("tells the operator to clear the option rather than to ask the bot", () => {
+    assert.throws(
+      () =>
+        loadConfig({
+          env: fakeEnv(),
+          readFile: fakeReadFile(makeOptions({ allowed_chat_ids: "str" })),
+        }),
+      (error) =>
+        /clear this option to allow every chat/.test(error.message) &&
+        !error.message.includes("send /chatid to the bot to find yours"),
+    );
+  });
+
   it("accepts negative chat IDs, which Telegram uses for groups and channels", () => {
     const config = loadConfig({
       env: fakeEnv(),
@@ -208,7 +224,7 @@ describe("loadConfig", () => {
           env: fakeEnv(),
           readFile: fakeReadFile(makeOptions({ telegram_bot_token: jwtShaped })),
         }),
-      /looks like a Home Assistant long-lived access token, not a Telegram bot token/,
+      /looks like a Home Assistant long-lived access token\. This add-on never asks for one/,
     );
   });
 

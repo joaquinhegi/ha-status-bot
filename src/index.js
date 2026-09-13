@@ -59,9 +59,9 @@ export function describeTelegramTokenProblem(value) {
 
   if (looksLikeJsonWebToken(value)) {
     return (
-      "looks like a Home Assistant long-lived access token, not a Telegram bot token. " +
-      "Home Assistant supplies its own credential automatically — this option only takes " +
-      "the token BotFather gives you, which looks like 123456789:AA..."
+      "looks like a Home Assistant long-lived access token. This add-on never asks for one: " +
+      "config.yaml sets homeassistant_api: true, so the Supervisor injects its own credential. " +
+      "This option takes only the token BotFather gives you, which looks like 123456789:AA..."
     );
   }
 
@@ -123,9 +123,13 @@ function buildOptionFields(options) {
       name: "allowed_chat_ids",
       value: allowedChatIds.ids,
       validate: (ids) => ids !== null,
+      // Do not send the operator to /chatid here: the add-on refuses to start
+      // while this option is invalid, so the bot cannot answer. Clearing the
+      // option is the only exit that works from this state.
       message:
-        "must be a list of numeric chat IDs. Open the add-on Configuration tab and enter each ID " +
-        "as its own list entry — send /chatid to the bot to find yours",
+        "must be a list of numeric chat IDs. Open the add-on Configuration tab and clear this " +
+        "option to allow every chat, start the add-on, send /chatid to the bot, then add the ID " +
+        "it replies with as its own list entry",
       read: () => {
         if (allowedChatIds.legacy) {
           console.warn(
