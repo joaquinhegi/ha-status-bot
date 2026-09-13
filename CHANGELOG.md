@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.1.1
+
+Fixes `/switches` failing outright, and the same latent fault in every other
+inline keyboard.
+
+Telegram refuses a `callback_data` over 64 bytes, and rejects the **whole
+message** when a single button breaks the limit. The payload carried the entity
+ID, which has no length bound — a smart plug integration readily produces
+`switch.termotanque_electrico_del_lavadero_proteccion_sobrecarga`, and one such
+entity made the entire keyboard unsendable. `/switches` hit it first because
+those integrations generate the longest names, but `/lights`, `/covers` and
+`/cameras` were equally exposed.
+
+- The payload now carries a short digest of the entity ID, so it is a fixed 20–21
+  bytes no matter how long the entity is named.
+- The entity ID is resolved by matching that digest against the entities the bot
+  itself just offered, so it never travels through the user at all. That is
+  stronger than the previous check, which validated a user-supplied ID against
+  the offered list.
+- A button rendered before this release still carries the old payload. Pressing
+  one now answers that the keyboard is from an older version and asks you to send
+  the command again, instead of refusing without explanation.
+
 ## 2.1.0
 
 ### Added
