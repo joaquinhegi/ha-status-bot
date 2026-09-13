@@ -1,5 +1,40 @@
 # Changelog
 
+## 2.0.4
+
+Fixes the add-on schema. `allowed_chat_ids` could not be configured at all since
+2.0.0, and this is the defect behind every configuration problem reported against
+the 2.0.x line.
+
+`config.yaml` declared:
+
+```yaml
+allowed_chat_ids: list(str)
+```
+
+That reads as "a list of strings". In the Home Assistant add-on schema `list(...)`
+is an **enumeration of literal values**, so it actually meant "this option must be
+the text `str`". Home Assistant rendered a dropdown whose only choice was `str`,
+which is what installations ended up storing, and saving anything else failed with
+`value must be one of [str]`.
+
+The correct syntax for a list of strings is a YAML sequence:
+
+```yaml
+allowed_chat_ids:
+  - str
+```
+
+- Fixed the schema. You can now enter chat IDs as list entries, or leave the option
+  empty to allow every chat.
+- Added `npm run check:addon`, which validates `config.yaml` against the documented
+  schema types and keeps options, schema and `translations/en.yaml` in agreement. It
+  rejects this exact mistake with the correct syntax in the message, and runs in CI.
+  No test could have caught the original defect: it lived entirely in the manifest.
+
+If your installation still shows `str` stored in **Allowed chat IDs**, clear the
+field, save, and then add your IDs as separate entries.
+
 ## 2.0.3
 
 Explains the options where you actually configure them, and stops sending you to
