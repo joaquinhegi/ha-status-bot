@@ -113,6 +113,7 @@ before `2.0.0`, see [Upgrading to 2.0.0](#upgrading-to-200) — the option names
 | `/help` | Short command list. | Yes |
 | `/status` | Full summary: lights, doors/windows, sensors, batteries, temperatures. | Yes |
 | `/lights` | Inline buttons to turn each light on or off. | Yes |
+| `/switches` | Inline buttons to turn each switch on or off. | Yes |
 | `/covers` | Inline buttons to open or close each cover. | Yes |
 | `/cameras` | Pick a camera, then request a photo or a 30-second video clip. | Yes |
 | `/sensors` | Binary sensors currently active. | Yes |

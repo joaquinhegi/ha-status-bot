@@ -92,6 +92,14 @@ function makeTemperatureSensorEntity(id, value) {
   };
 }
 
+function makeSwitchEntity(id, state = "off") {
+  return {
+    entity_id: `switch.${id}`,
+    state,
+    attributes: { friendly_name: `Switch ${id}` },
+  };
+}
+
 function makeCoverEntity(id, state = "closed") {
   return {
     entity_id: `cover.${id}`,
@@ -289,6 +297,111 @@ describe("createTelegramBot /lights command", () => {
 
     assert.strictEqual(bot.sentMessages.length, 1);
     assert.strictEqual(bot.sentMessages[0].options, undefined);
+  });
+});
+
+describe("createTelegramBot /switches command", () => {
+  it("denies the command for a chat_id absent from the allow-list without calling HA", async () => {
+    const { bot, ha } = setup({ states: [makeSwitchEntity("boiler")], allowedChatIds: ["1"] });
+
+    await bot.emitText("/switches", 999);
+
+    assert.strictEqual(ha.calls.getStates, 0);
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].chatId, 999);
+  });
+
+  it("sends an inline keyboard with one row per switch", async () => {
+    const states = [makeSwitchEntity("boiler", "on"), makeSwitchEntity("fan", "off")];
+    const { bot } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitText("/switches", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    const keyboard = bot.sentMessages[0].options.reply_markup.inline_keyboard;
+    assert.strictEqual(keyboard.length, 2);
+  });
+
+  it("offers turn off for a switch that is on and turn on for one that is off", async () => {
+    const states = [makeSwitchEntity("boiler", "on"), makeSwitchEntity("fan", "off")];
+    const { bot } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitText("/switches", 1);
+
+    const rows = bot.sentMessages[0].options.reply_markup.inline_keyboard.flat();
+    const payloads = rows.map((button) => button.callback_data);
+    assert.ok(payloads.includes("switch_off:switch.boiler"));
+    assert.ok(payloads.includes("switch_on:switch.fan"));
+  });
+
+  it("ignores entities from other domains", async () => {
+    const states = [
+      makeSwitchEntity("boiler"),
+      makeLightEntity("kitchen"),
+      makeCoverEntity("blind"),
+    ];
+    const { bot } = setup({ states, allowedChatIds: [] });
+
+    await bot.emitText("/switches", 1);
+
+    const rows = bot.sentMessages[0].options.reply_markup.inline_keyboard.flat();
+    assert.strictEqual(rows.length, 1);
+    assert.strictEqual(rows[0].callback_data, "switch_on:switch.boiler");
+  });
+
+  it("replies with the empty state when no switch exists", async () => {
+    const { bot } = setup({ states: [makeLightEntity("kitchen")], allowedChatIds: [] });
+
+    await bot.emitText("/switches", 1);
+
+    assert.strictEqual(bot.sentMessages.length, 1);
+    assert.strictEqual(bot.sentMessages[0].options?.reply_markup, undefined);
+  });
+});
+
+describe("createTelegramBot switch callbacks", () => {
+  it("calls switch.turn_on for an offered switch that is off", async () => {
+    const { bot, ha } = setup({ states: [makeSwitchEntity("fan", "off")], allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "switch_on:switch.fan" }));
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+    assert.deepStrictEqual(ha.calls.callService[0], {
+      domain: "switch",
+      service: "turn_on",
+      data: { entity_id: "switch.fan" },
+    });
+  });
+
+  it("calls switch.turn_off for an offered switch that is on", async () => {
+    const { bot, ha } = setup({ states: [makeSwitchEntity("boiler", "on")], allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "switch_off:switch.boiler" }));
+
+    assert.strictEqual(ha.calls.callService.length, 1);
+    assert.strictEqual(ha.calls.callService[0].service, "turn_off");
+  });
+
+  // The entity gate must cover switches exactly like lights and covers: a
+  // crafted callback naming a switch the bot never displayed is an attempt to
+  // operate something outside the offered set.
+  it("rejects a switch entity_id the bot never offered, calling no HA service", async () => {
+    const { bot, ha } = setup({ states: [makeSwitchEntity("fan", "off")], allowedChatIds: [] });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: "switch_on:switch.neighbour_heater" }),
+    );
+
+    assert.strictEqual(ha.calls.callService.length, 0);
+  });
+
+  it("refreshes the switch keyboard after acting", async () => {
+    const { bot } = setup({ states: [makeSwitchEntity("fan", "off")], allowedChatIds: [] });
+
+    await bot.emitEvent("callback_query", makeCallbackQuery({ data: "switch_on:switch.fan" }));
+
+    assert.strictEqual(bot.editedReplyMarkups.length, 1);
   });
 });
 
