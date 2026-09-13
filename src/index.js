@@ -24,7 +24,54 @@ function coerceLowBatteryThreshold(value) {
   return Number.isFinite(threshold) ? threshold : NaN;
 }
 
+// Normalizes whatever the Supervisor writes into /data/options.json for
+// allowed_chat_ids into an array of trimmed strings, or null when the value is
+// a shape this add-on cannot interpret.
+//
+// Three shapes reach this function in the field:
+//   - absent, null, or an empty string — the option was never set, meaning
+//     every chat is allowed;
+//   - an array — the list(str) schema introduced in 2.0.0, whose entries the
+//     Supervisor may hand over as numbers rather than strings;
+//   - a comma-separated string — the pre-2.0.0 str schema, which Home Assistant
+//     keeps in stored options when an add-on is upgraded in place.
+//
+// The last one is why 2.0.0 crash-looped on upgrade: renaming the schema type
+// does not migrate an installation's stored value. Accepting it with a warning
+// keeps the add-on running while the owner moves to list entries.
+export function normalizeAllowedChatIds(value) {
+  if (value === undefined || value === null || value === "") {
+    return { ids: [], legacy: false };
+  }
+
+  let entries = null;
+
+  if (Array.isArray(value)) {
+    entries = value;
+  } else if (typeof value === "string") {
+    entries = value.split(",");
+  }
+
+  if (entries === null) {
+    return { ids: null, legacy: false };
+  }
+
+  if (entries.some((entry) => typeof entry !== "string" && typeof entry !== "number")) {
+    return { ids: null, legacy: false };
+  }
+
+  return {
+    // isAllowed compares against String(chat.id), so an entry the Supervisor
+    // delivered as a number would never match and would silently deny every
+    // chat. Coerce here rather than at the comparison site.
+    ids: entries.map((entry) => String(entry).trim()).filter(Boolean),
+    legacy: typeof value === "string",
+  };
+}
+
 function buildOptionFields(options) {
+  const allowedChatIds = normalizeAllowedChatIds(options.allowed_chat_ids);
+
   return [
     {
       name: "telegram_bot_token",
@@ -35,10 +82,20 @@ function buildOptionFields(options) {
     },
     {
       name: "allowed_chat_ids",
-      value: options.allowed_chat_ids,
-      validate: (value) => value === undefined || Array.isArray(value),
-      message: "must be a list of strings",
-      read: () => (Array.isArray(options.allowed_chat_ids) ? options.allowed_chat_ids : []),
+      value: allowedChatIds.ids,
+      validate: (ids) => ids !== null,
+      message:
+        "must be a list of chat IDs. Open the add-on Configuration tab and enter each ID as its own list entry",
+      read: () => {
+        if (allowedChatIds.legacy) {
+          console.warn(
+            "[Config] allowed_chat_ids is a comma-separated string left over from a version before 2.0.0. " +
+              "It still works, but move each ID to its own list entry in the add-on Configuration tab.",
+          );
+        }
+
+        return allowedChatIds.ids;
+      },
     },
     {
       name: "low_battery_threshold_percent",
@@ -167,7 +224,10 @@ export async function bootstrap({
   return bot;
 }
 
-if (pathToFileURL(process.argv[1]).href === import.meta.url) {
+// process.argv[1] is absent under `node -e` and in a REPL, where pathToFileURL
+// throws. This guard exists so importing the module never starts a bot, so it
+// must stay inert rather than become the thing that crashes the import.
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
   bootstrap({ config: loadConfig() }).catch((error) => {
     console.error("Error starting HA Status Bot:", error);
     process.exit(1);
