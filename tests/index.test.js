@@ -9,9 +9,13 @@ import {
   loadConfig,
 } from "../src/index.js";
 
+// Shaped like a BotFather token so it survives validation, and obviously not a
+// real credential.
+const FAKE_BOT_TOKEN = "123456789:AAFakeTokenForUnitTestsOnly_0123456789";
+
 function makeOptions(overrides = {}) {
   return {
-    telegram_bot_token: "test-token",
+    telegram_bot_token: FAKE_BOT_TOKEN,
     allowed_chat_ids: ["111", "222"],
     low_battery_threshold_percent: 15,
     ...overrides,
@@ -38,7 +42,7 @@ describe("loadConfig", () => {
       readFile: fakeReadFile(makeOptions()),
     });
 
-    assert.strictEqual(config.telegram.token, "test-token");
+    assert.strictEqual(config.telegram.token, FAKE_BOT_TOKEN);
     assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
   });
 
@@ -165,7 +169,70 @@ describe("loadConfig", () => {
           env: fakeEnv(),
           readFile: fakeReadFile(makeOptions({ allowed_chat_ids: { 111: true } })),
         }),
-      /allowed_chat_ids: must be a list of chat IDs\. Open the add-on Configuration tab/,
+      /allowed_chat_ids: must be a list of numeric chat IDs/,
+    );
+  });
+
+  // Reported from production: the stored value was the literal text "str", the
+  // schema type name. The compatibility shim parsed it as a one-entry list, the
+  // add-on started cleanly, and then matched no chat at all.
+  it("rejects an allowed_chat_ids entry that cannot be a chat ID", () => {
+    assert.throws(
+      () =>
+        loadConfig({
+          env: fakeEnv(),
+          readFile: fakeReadFile(makeOptions({ allowed_chat_ids: "str" })),
+        }),
+      /allowed_chat_ids: must be a list of numeric chat IDs/,
+    );
+  });
+
+  it("accepts negative chat IDs, which Telegram uses for groups and channels", () => {
+    const config = loadConfig({
+      env: fakeEnv(),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: ["-1001234567890"] })),
+    });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, ["-1001234567890"]);
+  });
+
+  // Also from production: a Home Assistant long-lived token was pasted into
+  // telegram_bot_token. It passed the non-empty-string check, so the add-on
+  // started and every Telegram call answered 404.
+  it("rejects a Home Assistant token in telegram_bot_token, naming the confusion", () => {
+    const jwtShaped = "eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJmYWtlIn0.fake-signature-for-tests";
+
+    assert.throws(
+      () =>
+        loadConfig({
+          env: fakeEnv(),
+          readFile: fakeReadFile(makeOptions({ telegram_bot_token: jwtShaped })),
+        }),
+      /looks like a Home Assistant long-lived access token, not a Telegram bot token/,
+    );
+  });
+
+  it("rejects a telegram_bot_token that is not shaped like a BotFather token", () => {
+    assert.throws(
+      () =>
+        loadConfig({
+          env: fakeEnv(),
+          readFile: fakeReadFile(makeOptions({ telegram_bot_token: "not-a-token" })),
+        }),
+      /is not shaped like a BotFather token/,
+    );
+  });
+
+  it("never puts the rejected token value in the thrown message", () => {
+    const secret = "eyJhbGciOiJIUzI1NiJ9.eyJzZWNyZXQiOiJ2YWx1ZSJ9.do-not-leak-me";
+
+    assert.throws(
+      () =>
+        loadConfig({
+          env: fakeEnv(),
+          readFile: fakeReadFile(makeOptions({ telegram_bot_token: secret })),
+        }),
+      (error) => !error.message.includes(secret),
     );
   });
 

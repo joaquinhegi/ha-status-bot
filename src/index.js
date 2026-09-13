@@ -39,6 +39,39 @@ function coerceLowBatteryThreshold(value) {
 // The last one is why 2.0.0 crash-looped on upgrade: renaming the schema type
 // does not migrate an installation's stored value. Accepting it with a warning
 // keeps the add-on running while the owner moves to list entries.
+// A BotFather token is a numeric bot id, a colon, then a long opaque secret.
+const TELEGRAM_BOT_TOKEN_SHAPE = /^\d{6,}:[A-Za-z0-9_-]{30,}$/;
+
+// Telegram chat IDs are integers. Group and channel IDs are negative.
+const CHAT_ID_SHAPE = /^-?\d+$/;
+
+function looksLikeJsonWebToken(value) {
+  return value.startsWith("eyJ") && value.split(".").length === 3;
+}
+
+// Returns null when the value is a usable bot token, or a message naming what
+// is wrong. Never include the value itself: it is a credential, and this text
+// reaches the add-on log.
+export function describeTelegramTokenProblem(value) {
+  if (typeof value !== "string" || value.length === 0) {
+    return "must be the bot token issued by BotFather";
+  }
+
+  if (looksLikeJsonWebToken(value)) {
+    return (
+      "looks like a Home Assistant long-lived access token, not a Telegram bot token. " +
+      "Home Assistant supplies its own credential automatically — this option only takes " +
+      "the token BotFather gives you, which looks like 123456789:AA..."
+    );
+  }
+
+  if (!TELEGRAM_BOT_TOKEN_SHAPE.test(value)) {
+    return "is not shaped like a BotFather token, which looks like 123456789:AA...";
+  }
+
+  return null;
+}
+
 export function normalizeAllowedChatIds(value) {
   if (value === undefined || value === null || value === "") {
     return { ids: [], legacy: false };
@@ -60,13 +93,19 @@ export function normalizeAllowedChatIds(value) {
     return { ids: null, legacy: false };
   }
 
-  return {
-    // isAllowed compares against String(chat.id), so an entry the Supervisor
-    // delivered as a number would never match and would silently deny every
-    // chat. Coerce here rather than at the comparison site.
-    ids: entries.map((entry) => String(entry).trim()).filter(Boolean),
-    legacy: typeof value === "string",
-  };
+  // isAllowed compares against String(chat.id), so an entry the Supervisor
+  // delivered as a number would never match and would silently deny every
+  // chat. Coerce here rather than at the comparison site.
+  const ids = entries.map((entry) => String(entry).trim()).filter(Boolean);
+
+  // An entry that cannot be a chat ID can only ever deny someone. Accepting it
+  // produces a bot that starts cleanly and answers nobody, which is the hardest
+  // kind of failure to diagnose from a log.
+  if (ids.some((id) => !CHAT_ID_SHAPE.test(id))) {
+    return { ids: null, legacy: false };
+  }
+
+  return { ids, legacy: typeof value === "string" };
 }
 
 function buildOptionFields(options) {
@@ -76,8 +115,8 @@ function buildOptionFields(options) {
     {
       name: "telegram_bot_token",
       value: options.telegram_bot_token,
-      validate: (value) => typeof value === "string" && value.length > 0,
-      message: "must be a non-empty string",
+      validate: (value) => describeTelegramTokenProblem(value) === null,
+      message: describeTelegramTokenProblem(options.telegram_bot_token) ?? "",
       read: () => options.telegram_bot_token,
     },
     {
@@ -85,7 +124,8 @@ function buildOptionFields(options) {
       value: allowedChatIds.ids,
       validate: (ids) => ids !== null,
       message:
-        "must be a list of chat IDs. Open the add-on Configuration tab and enter each ID as its own list entry",
+        "must be a list of numeric chat IDs. Open the add-on Configuration tab and enter each ID " +
+        "as its own list entry — send /chatid to the bot to find yours",
       read: () => {
         if (allowedChatIds.legacy) {
           console.warn(
