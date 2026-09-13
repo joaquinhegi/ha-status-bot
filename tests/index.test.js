@@ -115,6 +115,60 @@ describe("loadConfig", () => {
     assert.deepStrictEqual(config.telegram.allowedChatIds, []);
   });
 
+  // Production crash-looped on 2.0.0 because Home Assistant keeps an
+  // installation's stored option values across an in-place upgrade. Renaming
+  // the schema from str to list(str) does not rewrite what is already stored,
+  // so upgraded add-ons handed loadConfig the pre-2.0.0 comma-separated string.
+  it("accepts the pre-2.0.0 comma-separated allow-list instead of failing to start", () => {
+    const config = loadConfig({
+      env: fakeEnv(),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: "111,222" })),
+    });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
+  });
+
+  it("trims whitespace and drops empty entries from a legacy comma-separated allow-list", () => {
+    const config = loadConfig({
+      env: fakeEnv(),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: " 111 , ,222, " })),
+    });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
+  });
+
+  it("returns an empty allow-list when allowed_chat_ids is null", () => {
+    const config = loadConfig({
+      env: fakeEnv(),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: null })),
+    });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, []);
+  });
+
+  // isAllowed compares against String(chat.id). Numeric entries passed the old
+  // Array.isArray check, started the add-on, and then silently denied every
+  // chat — a worse failure than the crash, because nothing reported it.
+  it("coerces numeric allowed_chat_ids entries to strings", () => {
+    const config = loadConfig({
+      env: fakeEnv(),
+      readFile: fakeReadFile(makeOptions({ allowed_chat_ids: [111, 222] })),
+    });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
+  });
+
+  it("rejects an allowed_chat_ids shape it cannot interpret, naming the fix", () => {
+    assert.throws(
+      () =>
+        loadConfig({
+          env: fakeEnv(),
+          readFile: fakeReadFile(makeOptions({ allowed_chat_ids: { 111: true } })),
+        }),
+      /allowed_chat_ids: must be a list of chat IDs\. Open the add-on Configuration tab/,
+    );
+  });
+
   it("coerces a numeric low_battery_threshold_percent string", () => {
     const config = loadConfig({
       env: fakeEnv(),

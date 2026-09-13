@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.1
+
+Fixes an upgrade failure: 2.0.0 crash-looped on any installation that already
+had `allowed_chat_ids` configured.
+
+Home Assistant keeps an installation's stored option values when an add-on is
+upgraded in place. Renaming the option's schema from `str` to `list(str)` in
+2.0.0 did not rewrite what was already stored, so an upgraded add-on received
+the old comma-separated string, rejected it, and exited — repeatedly.
+
+- `allowed_chat_ids` now accepts the pre-2.0.0 comma-separated string and logs a
+  warning asking you to move each ID to its own list entry. The add-on starts
+  either way; nothing is required of you to recover from the crash loop.
+- Entries the Supervisor delivers as numbers are coerced to strings. Previously
+  a numeric list passed validation, started the add-on, and then denied every
+  chat with no error anywhere — a quieter failure than the crash.
+- An empty or absent `allowed_chat_ids` is treated as "allow every chat",
+  including when it arrives as `null`.
+- A shape that cannot be interpreted is still rejected, but the message now
+  names the fix instead of only the rule.
+- The entrypoint guard no longer throws when `process.argv[1]` is absent.
+
 ## 2.0.0
 
 > **⚠️ Breaking release.** Every bot command was renamed and two add-on options were renamed.
