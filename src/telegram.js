@@ -309,10 +309,29 @@ export function createTelegramBot({
 }) {
   const bot = createBot(token);
 
-  bot.deleteWebHook({ drop_pending_updates: true }).then(() => {
-    bot.startPolling();
-    logger.log("[Telegram] Polling started (webhook removed).");
-  });
+  // Without the catch this rejection was unhandled, and startPolling never ran:
+  // the bot logged a successful start and then received nothing, forever. Poll
+  // regardless of what deleteWebHook does, so a failure shows up as a
+  // polling_error the operator can act on rather than as silence.
+  bot
+    .deleteWebHook({ drop_pending_updates: true })
+    .then(() => {
+      logger.log("[Telegram] Webhook removed.");
+    })
+    .catch((error) => {
+      if (error.response?.statusCode === 401 || error.response?.statusCode === 404) {
+        logger.error(
+          "[Telegram] Telegram rejected the bot token. Check telegram_bot_token in the add-on " +
+            "Configuration tab — it must be the token BotFather issued for this bot.",
+        );
+      } else {
+        logger.error("[Telegram] Could not remove the webhook:", error.message);
+      }
+    })
+    .finally(() => {
+      bot.startPolling();
+      logger.log("[Telegram] Polling started.");
+    });
 
   async function handleCommand(msg, formatter) {
     const chatId = msg.chat.id;
