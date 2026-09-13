@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import TelegramBot from "node-telegram-bot-api";
 
 import {
@@ -44,7 +46,7 @@ function buildCameraListKeyboard(cameras) {
   return cameras.map((camera) => [
     {
       text: `📷 ${camera.name}`,
-      callback_data: `camera_pick:${camera.entity_id}`,
+      callback_data: `camera_pick:${entityToken(camera.entity_id)}`,
     },
   ]);
 }
@@ -57,7 +59,7 @@ function buildLightKeyboard(lights) {
     return [
       {
         text: `${icon} ${light.name} → ${actionLabel}`,
-        callback_data: `${action}:${light.entity_id}`,
+        callback_data: `${action}:${entityToken(light.entity_id)}`,
       },
     ];
   });
@@ -72,7 +74,7 @@ function buildSwitchKeyboard(switches) {
     return [
       {
         text: `${icon} ${item.name} → ${actionLabel}`,
-        callback_data: `${action}:${item.entity_id}`,
+        callback_data: `${action}:${entityToken(item.entity_id)}`,
       },
     ];
   });
@@ -87,7 +89,7 @@ function buildCoverKeyboard(covers) {
     return [
       {
         text: `${icon} ${cover.name} (${cover.state}) → ${actionLabel}`,
-        callback_data: `${action}:${cover.entity_id}`,
+        callback_data: `${action}:${entityToken(cover.entity_id)}`,
       },
     ];
   });
@@ -138,17 +140,19 @@ async function replyWithEntityKeyboard(
 }
 
 function cameraOptionsKeyboard(entityId) {
+  const token = entityToken(entityId);
+
   return [
     [
       {
         text: "🖼️ Send photo",
-        callback_data: `camera_img:${entityId}`,
+        callback_data: `camera_img:${token}`,
       },
     ],
     [
       {
         text: `🎥 Send video (${CAMERA_CLIP_DURATION_SECONDS}s)`,
-        callback_data: `camera_vid${CAMERA_CLIP_DURATION_SECONDS}:${entityId}`,
+        callback_data: `camera_vid${CAMERA_CLIP_DURATION_SECONDS}:${token}`,
       },
     ],
     [
@@ -252,8 +256,22 @@ async function sendVideoWithFallback(bot, chatId, buffer, caption, fileName, con
   }
 }
 
-// Shape-only check: syntactically valid entity_id, not an authorization decision.
-const ENTITY_ID_SHAPE = /^[a-z_]+\.[a-z0-9_]+$/;
+// Telegram rejects a callback_data over 64 bytes, and rejects the whole message
+// when a single button breaks that limit. Entity IDs are not bounded: a smart
+// plug integration happily produces switch.enchufe_cocina_overcurrent_protection,
+// which pushed the payload past the limit and made the entire /switches keyboard
+// unsendable.
+//
+// The payload carries a short digest of the entity ID instead, and the entity is
+// resolved by matching that digest against the entities the bot itself just
+// offered. The ID therefore never travels through the user at all, which is
+// strictly stronger than the previous membership check on a user-supplied ID.
+const ENTITY_TOKEN_LENGTH = 10;
+const ENTITY_TOKEN_SHAPE = /^[0-9a-f]{10}$/;
+
+export function entityToken(entityId) {
+  return createHash("sha1").update(entityId).digest("hex").slice(0, ENTITY_TOKEN_LENGTH);
+}
 
 // Maps each privileged callback action to the same formatter selector used to
 // build the keyboard that offered it. An action absent from this map (e.g.
@@ -276,19 +294,24 @@ const OFFERED_ENTITY_SELECTORS = {
 // membership against the selector output is the actual authorization
 // boundary. Returns `requiresEntity: false` for actions with no entity to
 // authorize (e.g. camera_list, unknown actions).
-function resolveOfferedEntity(action, entityId, states) {
+function resolveOfferedEntity(action, token, states) {
   const selector = OFFERED_ENTITY_SELECTORS[action];
 
   if (!selector) {
     return { requiresEntity: false, offered: null };
   }
 
-  if (!ENTITY_ID_SHAPE.test(entityId || "")) {
+  if (!ENTITY_TOKEN_SHAPE.test(token || "")) {
     return { requiresEntity: true, offered: null };
   }
 
-  const offered = selector(states).find((candidate) => candidate.entity_id === entityId) || null;
-  return { requiresEntity: true, offered };
+  const matches = selector(states).filter(
+    (candidate) => entityToken(candidate.entity_id) === token,
+  );
+
+  // Two offered entities sharing a digest would make the target ambiguous.
+  // Refuse rather than guess which one the person meant.
+  return { requiresEntity: true, offered: matches.length === 1 ? matches[0] : null };
 }
 
 // Single source of truth for the 2.0.0 Spanish→English command rename. The
@@ -582,10 +605,10 @@ export function createTelegramBot({
   bot.on("callback_query", async (query) => {
     const chatId = query.message.chat.id;
     const [action, ...payloadParts] = query.data.split(":");
-    const entityId = payloadParts.join(":");
+    const payload = payloadParts.join(":");
     const answer = (text) => safeAnswerCallback(bot, query.id, text);
     console.log(
-      `[Telegram] Callback: ${action} → ${entityId || "(no payload)"} from chat_id=${chatId}`,
+      `[Telegram] Callback: ${action} → ${payload || "(no payload)"} from chat_id=${chatId}`,
     );
 
     if (!isAllowed(chatId, allowedChatIds)) {
@@ -596,15 +619,25 @@ export function createTelegramBot({
 
     try {
       const states = await ha.getStates();
-      const gate = resolveOfferedEntity(action, entityId, states);
+      const gate = resolveOfferedEntity(action, payload, states);
 
       if (gate.requiresEntity && !gate.offered) {
+        // A payload holding a dotted entity ID comes from a keyboard built
+        // before 2.1.1, when the ID travelled in the callback itself.
+        const staleKeyboard = payload.includes(".");
         console.warn(
-          `[Telegram] Rejected entity not offered: ${action} -> ${entityId || "(no payload)"}`,
+          `[Telegram] Rejected entity not offered: ${action} -> ${payload || "(no payload)"}`,
         );
-        await answer("Entity not authorized.");
+        await answer(
+          staleKeyboard
+            ? "This keyboard is from an older version. Send the command again."
+            : "Entity not authorized.",
+        );
         return;
       }
+
+      // The entity ID comes from what the bot offered, never from the payload.
+      const entityId = gate.offered?.entity_id;
 
       if (action === "light_on") {
         await ha.callService("light", "turn_on", { entity_id: entityId });
@@ -753,7 +786,7 @@ export function createTelegramBot({
       }
     } catch (error) {
       console.error(
-        `[Telegram] Error processing callback ${action} → ${entityId}: ${error.message}`,
+        `[Telegram] Error processing callback ${action} → ${payload}: ${error.message}`,
       );
       try {
         await bot.sendMessage(chatId, `⚠️ Error in ${action}: ${error.message}`);
