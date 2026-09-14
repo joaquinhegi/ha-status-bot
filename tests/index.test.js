@@ -26,6 +26,25 @@ function fakeReadFile(options) {
   return () => JSON.stringify(options);
 }
 
+// A standalone process has no SUPERVISOR_TOKEN, so every value comes from the
+// environment. Passing undefined for a key removes it.
+function standaloneEnv(overrides = {}) {
+  const env = {
+    HA_TOKEN: "test-ha-token",
+    HA_BASE_URL: "http://homeassistant.local:8123/api",
+    TELEGRAM_BOT_TOKEN: FAKE_BOT_TOKEN,
+    ALLOWED_CHAT_IDS: "111,222",
+    LOW_BATTERY_THRESHOLD_PERCENT: "15",
+    ...overrides,
+  };
+
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined) delete env[key];
+  }
+
+  return env;
+}
+
 function fakeEnv(overrides = {}) {
   return {
     SUPERVISOR_TOKEN: "test-supervisor-token",
@@ -78,17 +97,30 @@ describe("loadConfig", () => {
     assert.strictEqual(config.homeAssistant.token, "another-test-token");
   });
 
-  it("throws naming SUPERVISOR_TOKEN when missing", () => {
+  // Without SUPERVISOR_TOKEN the process is not running under the Supervisor,
+  // so the add-on advice would be wrong. The error names what a standalone
+  // operator actually has to do.
+  it("throws naming HA_TOKEN when running standalone without a token", () => {
     assert.throws(
-      () => loadConfig({ env: {}, readFile: fakeReadFile(makeOptions()) }),
-      /SUPERVISOR_TOKEN/,
+      () => loadConfig({ env: standaloneEnv({ HA_TOKEN: undefined }) }),
+      /Missing HA_TOKEN\. Create a long-lived access token/,
     );
   });
 
-  it("throws naming homeassistant_api guidance when SUPERVISOR_TOKEN is missing", () => {
+  it("throws naming HA_BASE_URL when running standalone without one", () => {
     assert.throws(
-      () => loadConfig({ env: {}, readFile: fakeReadFile(makeOptions()) }),
-      /homeassistant_api/,
+      () => loadConfig({ env: standaloneEnv({ HA_BASE_URL: undefined }) }),
+      /Missing HA_BASE_URL\. Set it to your Home Assistant API URL/,
+    );
+  });
+
+  // The Supervisor proxy address only resolves inside Home Assistant, so
+  // defaulting to it here would surface as a DNS failure that says nothing
+  // about the real mistake.
+  it("does not fall back to the Supervisor proxy URL when standalone", () => {
+    assert.throws(
+      () => loadConfig({ env: standaloneEnv({ HA_BASE_URL: undefined }) }),
+      (error) => !error.message.includes(HA_DEFAULT_BASE_URL),
     );
   });
 
@@ -325,6 +357,65 @@ describe("loadConfig", () => {
     });
 
     assert.strictEqual(capturedPath, "/custom/options.json");
+  });
+});
+
+describe("loadConfig runtimes", () => {
+  it("detects the add-on runtime from the injected SUPERVISOR_TOKEN", () => {
+    const config = loadConfig({ env: fakeEnv(), readFile: fakeReadFile(makeOptions()) });
+
+    assert.strictEqual(config.runtime, "addon");
+    assert.strictEqual(config.homeAssistant.token, "test-supervisor-token");
+    assert.strictEqual(config.homeAssistant.mediaAvailable, true);
+  });
+
+  it("reads options from the environment when standalone, without touching a file", () => {
+    let readCalls = 0;
+    const config = loadConfig({
+      env: standaloneEnv(),
+      readFile: () => {
+        readCalls += 1;
+        throw new Error("no options file should be read when standalone");
+      },
+    });
+
+    assert.strictEqual(readCalls, 0);
+    assert.strictEqual(config.runtime, "standalone");
+    assert.strictEqual(config.telegram.token, FAKE_BOT_TOKEN);
+    assert.deepStrictEqual(config.telegram.allowedChatIds, ["111", "222"]);
+    assert.strictEqual(config.thresholds.lowBattery, 15);
+    assert.strictEqual(config.homeAssistant.token, "test-ha-token");
+    assert.strictEqual(config.homeAssistant.baseUrl, "http://homeassistant.local:8123/api");
+  });
+
+  // Recorded video lives in Home Assistant's media folder, which is mapped into
+  // the add-on container and reachable nowhere else.
+  it("reports media as unavailable when standalone", () => {
+    const config = loadConfig({ env: standaloneEnv() });
+
+    assert.strictEqual(config.homeAssistant.mediaAvailable, false);
+  });
+
+  it("allows an empty ALLOWED_CHAT_IDS to mean every chat", () => {
+    const config = loadConfig({ env: standaloneEnv({ ALLOWED_CHAT_IDS: "" }) });
+
+    assert.deepStrictEqual(config.telegram.allowedChatIds, []);
+  });
+
+  // The same validation serves both runtimes, so a bad value is reported the
+  // same way whatever supplied it.
+  it("applies the same option validation to environment values", () => {
+    assert.throws(
+      () => loadConfig({ env: standaloneEnv({ TELEGRAM_BOT_TOKEN: "not-a-token" }) }),
+      /is not shaped like a BotFather token/,
+    );
+  });
+
+  it("names the environment as the source when standalone validation fails", () => {
+    assert.throws(
+      () => loadConfig({ env: standaloneEnv({ ALLOWED_CHAT_IDS: "str" }) }),
+      /Invalid environment configuration/,
+    );
   });
 });
 

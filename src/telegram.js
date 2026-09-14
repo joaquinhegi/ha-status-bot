@@ -139,8 +139,22 @@ async function replyWithEntityKeyboard(
   }
 }
 
-function cameraOptionsKeyboard(entityId) {
+function cameraOptionsKeyboard(entityId, { videoAvailable }) {
   const token = entityToken(entityId);
+
+  // Recorded video needs Home Assistant's media folder, which only the add-on
+  // runtime can reach. Offering a button that cannot work is worse than not
+  // offering it, so standalone simply does not show it.
+  const videoRow = videoAvailable
+    ? [
+        [
+          {
+            text: `🎥 Send video (${CAMERA_CLIP_DURATION_SECONDS}s)`,
+            callback_data: `camera_vid${CAMERA_CLIP_DURATION_SECONDS}:${token}`,
+          },
+        ],
+      ]
+    : [];
 
   return [
     [
@@ -149,12 +163,7 @@ function cameraOptionsKeyboard(entityId) {
         callback_data: `camera_img:${token}`,
       },
     ],
-    [
-      {
-        text: `🎥 Send video (${CAMERA_CLIP_DURATION_SECONDS}s)`,
-        callback_data: `camera_vid${CAMERA_CLIP_DURATION_SECONDS}:${token}`,
-      },
-    ],
+    ...videoRow,
     [
       {
         text: "⬅️ Back to cameras",
@@ -342,6 +351,7 @@ export function createTelegramBot({
   allowedChatIds,
   lowBatteryThreshold,
   ha,
+  cameraVideoAvailable = true,
   createBot = (botToken) =>
     new TelegramBot(botToken, {
       polling: {
@@ -671,7 +681,9 @@ export function createTelegramBot({
           chat_id: chatId,
           message_id: query.message.message_id,
           reply_markup: {
-            inline_keyboard: cameraOptionsKeyboard(entityId),
+            inline_keyboard: cameraOptionsKeyboard(entityId, {
+              videoAvailable: cameraVideoAvailable,
+            }),
           },
         });
         return;
@@ -711,6 +723,14 @@ export function createTelegramBot({
         );
         return;
       } else if (action === `camera_vid${CAMERA_CLIP_DURATION_SECONDS}`) {
+        // The button is not rendered when video is unavailable, so reaching
+        // here means a keyboard from an add-on run is being pressed against a
+        // standalone one. Say why instead of failing deep inside the fetch.
+        if (!cameraVideoAvailable) {
+          await answer("Video is only available when running inside Home Assistant.");
+          return;
+        }
+
         await answer(`Recording video (${CAMERA_CLIP_DURATION_SECONDS}s)...`);
 
         const selected = gate.offered;
