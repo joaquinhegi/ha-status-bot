@@ -37,6 +37,14 @@ export function resolveMediaMountPath(mediaPath) {
   return `${MEDIA_MOUNT}/${relative}`;
 }
 
+function mediaUnavailable() {
+  return new Error(
+    "Recorded media is only reachable from inside Home Assistant. This bot is running " +
+      "standalone, where the media folder is not mapped and Home Assistant refuses HTTP " +
+      "access to it.",
+  );
+}
+
 function mediaNotReady(message) {
   const error = new Error(message);
   // Callers poll until Home Assistant finishes writing the file. They must not
@@ -69,6 +77,7 @@ export function createHomeAssistantClient({
   now = Date.now,
   logger = console,
   readMediaFile = defaultReadMediaFile,
+  mediaAvailable = true,
 }) {
   const rootUrl = baseUrl.replace(/\/api\/?$/, "");
   const cameraProxyUnavailable = new Set();
@@ -233,6 +242,14 @@ export function createHomeAssistantClient({
           "camera snapshot",
         );
       } catch (error) {
+        // Without the media mount there is nothing to fall back TO: the service
+        // writes a file this process cannot reach. Surface the proxy failure
+        // itself rather than a confusing second failure behind it.
+        if (!mediaAvailable) {
+          logger.error(`[HA API] Camera proxy failed for ${entityId}:`, error.message);
+          throw error;
+        }
+
         logger.warn(
           `[HA API] Snapshot proxy unavailable for ${entityId}, falling back to service:`,
           error.message,
@@ -271,6 +288,10 @@ export function createHomeAssistantClient({
   }
 
   async function recordCameraClip(entityId, duration = CAMERA_CLIP_DURATION_SECONDS) {
+    if (!mediaAvailable) {
+      throw mediaUnavailable();
+    }
+
     const safeEntityId = entityId.replace(/[^a-zA-Z0-9_]/g, "_");
     const fileName = `ha_status_bot_${safeEntityId}_${now()}.mp4`;
     const internalPath = `/media/${fileName}`;
@@ -289,6 +310,10 @@ export function createHomeAssistantClient({
   }
 
   async function getMediaFile(mediaPath) {
+    if (!mediaAvailable) {
+      throw mediaUnavailable();
+    }
+
     const path = resolveMediaMountPath(mediaPath);
     let buffer;
 

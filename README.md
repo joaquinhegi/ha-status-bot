@@ -25,6 +25,8 @@ all through simple commands and inline buttons.
 - [Commands](#commands)
 - [Authorization model](#authorization-model)
 - [Upgrading to 2.0.0](#upgrading-to-200)
+- [Running modes](#running-modes)
+- [Standalone deployment](#standalone-deployment)
 - [Environment variables](#environment-variables)
 - [Development](#development)
 - [Docker](#docker)
@@ -190,25 +192,104 @@ language-selection option.
 
 ---
 
+## Running modes
+
+The bot supports two runtimes. Both go through the same configuration validation, so an
+invalid value is reported identically whichever one supplied it.
+
+| | Add-on | Standalone |
+|---|---|---|
+| Where it runs | Inside Home Assistant, installed as an add-on | Anywhere else: another server, a VPS, a plain container |
+| Options | Home Assistant Configuration tab (`/data/options.json`) | Environment variables |
+| Home Assistant credential | `SUPERVISOR_TOKEN`, injected by the Supervisor | A long-lived access token you create |
+| Home Assistant address | Supervisor proxy | Whatever you set in `HA_BASE_URL` |
+| Camera photos | Yes | Yes |
+| Camera video | Yes | **No** — see below |
+
+The bot picks its runtime by itself: `SUPERVISOR_TOKEN` is set by nothing but the Supervisor,
+so its absence means standalone. The chosen runtime is logged on every start.
+
+### Why camera video is add-on only
+
+`camera.record` writes the clip into Home Assistant's media folder. The add-on reads it through
+a mapped mount; from anywhere else that folder is unreachable, because Home Assistant serves
+media through signed media-source URLs and answers a bearer-token request with `403`.
+
+So in standalone the video button is not shown at all. A button that cannot work is worse than
+a button that is not there. Photos are unaffected — they come from `/api/camera_proxy/<entity>`,
+an authenticated endpoint that works over the network.
+
+---
+
+## Standalone deployment
+
+Create a long-lived access token in Home Assistant: your profile → Security → Long-lived access
+tokens. This is the Home Assistant credential, not the Telegram one.
+
+Copy `env.example` to `.env` and fill it in:
+
+```bash
+cp env.example .env
+```
+
+```bash
+HA_BASE_URL=http://192.168.1.50:8123/api
+HA_TOKEN=<your long-lived access token>
+TELEGRAM_BOT_TOKEN=<the token BotFather gave you>
+ALLOWED_CHAT_IDS=123456789
+LOW_BATTERY_THRESHOLD_PERCENT=20
+```
+
+Leave `ALLOWED_CHAT_IDS` empty at first: empty means every chat is allowed. Start the bot, send
+`/chatid`, then put the ID it replies with into the file and restart.
+
+```bash
+npm ci
+npm run dev        # loads .env, then starts the bot
+```
+
+`npm start` runs without reading `.env`, for a container that already has the variables in its
+environment:
+
+```bash
+docker build -t ha-status-bot .
+docker run --rm \
+  -e HA_BASE_URL=http://192.168.1.50:8123/api \
+  -e HA_TOKEN=... \
+  -e TELEGRAM_BOT_TOKEN=... \
+  -e ALLOWED_CHAT_IDS=123456789 \
+  ha-status-bot
+```
+
+`.env` is gitignored. Never commit it, and never put a real token in `env.example`.
+
+---
+
 ## Environment variables
 
-These are set by the Home Assistant Supervisor automatically and normally require no action:
+Which variables apply depends on the runtime. See [Running modes](#running-modes).
+
+**Add-on runtime** — supplied by the platform, nothing to do:
 
 | Variable | Source | Purpose |
 |---|---|---|
-| `SUPERVISOR_TOKEN` | Injected by the Supervisor because `config.yaml` declares `homeassistant_api: true`. | Bearer token used to authenticate every Home Assistant REST call. Required; the add-on exits with an explicit error if it is missing. |
+| `SUPERVISOR_TOKEN` | Injected by the Supervisor because `config.yaml` declares `homeassistant_api: true`. | Authenticates every Home Assistant REST call. Its presence is also what tells the bot it is running as an add-on. |
+| `HA_BASE_URL` | Optional override, defaults to `http://supervisor/core/api`. | Only useful for pointing an add-on at a different address. |
+| `OPTIONS_PATH` | Optional override, defaults to `/data/options.json`. | Where the add-on options are read from. |
 
-These two are optional overrides, useful when running the bot **outside** the Supervisor (local
-development, a manual container run):
+**Standalone runtime** — you supply all of these:
 
-| Variable | Default | Purpose |
+| Variable | Required | Purpose |
 |---|---|---|
-| `HA_BASE_URL` | `http://supervisor/core/api` | Base URL of the Home Assistant REST API. Only override this for local runs against a Home Assistant instance reachable at a different address. |
-| `OPTIONS_PATH` | `/data/options.json` | Path to the JSON file holding the add-on options (`telegram_bot_token`, `allowed_chat_ids`, `low_battery_threshold_percent`). Point this at a local file to run the bot without the Supervisor. |
+| `HA_TOKEN` | Yes | A long-lived access token from your Home Assistant profile. Not the Telegram token. |
+| `HA_BASE_URL` | Yes | Your Home Assistant API URL, for example `http://192.168.1.50:8123/api`. There is no default: the Supervisor proxy address only resolves inside Home Assistant, so falling back to it would fail with a DNS error that says nothing about the real mistake. |
+| `TELEGRAM_BOT_TOKEN` | Yes | The token BotFather issued, shaped `123456789:AA...`. |
+| `ALLOWED_CHAT_IDS` | No | Comma-separated chat IDs. Empty means every chat is allowed. |
+| `LOW_BATTERY_THRESHOLD_PERCENT` | No | Defaults to `20`. |
 
-**Never hardcode `SUPERVISOR_TOKEN`, a Telegram bot token, or any other credential in source,
-in a committed file, or in this README.** Provide them only through the add-on Configuration UI
-or through environment variables / a local, gitignored options file at development time.
+**Never hardcode a credential in source, in a committed file, or in this README.** Supply them
+only through the add-on Configuration tab, through environment variables, or through a local
+gitignored `.env`.
 
 ---
 

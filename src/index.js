@@ -5,15 +5,61 @@ import { createTelegramBot } from "./telegram.js";
 
 export const HA_DEFAULT_BASE_URL = "http://supervisor/core/api";
 
+// Two supported runtimes, one validation path.
+//
+// ADD-ON — the Supervisor injects SUPERVISOR_TOKEN, writes the chosen options
+// to /data/options.json, and maps Home Assistant's media folder into the
+// container. Everything is supplied by the platform.
+//
+// STANDALONE — the bot runs anywhere else: another server, a VPS, a plain
+// container. Nothing is injected, so the operator supplies the options through
+// environment variables and a long-lived access token they created themselves,
+// and Home Assistant is reached over the network.
+//
+// Local development is the standalone runtime pointed at your own machine, not
+// a third code path — a separate "dev" path would drift from what people
+// actually deploy.
+//
+// SUPERVISOR_TOKEN is the detection signal because nothing but the Supervisor
+// ever sets it.
+export const RUNTIME_ADDON = "addon";
+export const RUNTIME_STANDALONE = "standalone";
+
+export function detectRuntime(env) {
+  return env.SUPERVISOR_TOKEN ? RUNTIME_ADDON : RUNTIME_STANDALONE;
+}
+
+// Standalone options arrive as environment variables, which is how a container
+// running outside Home Assistant is normally configured. They are shaped into
+// the same object the add-on options file produces, so a single validation pass
+// serves both runtimes and neither can drift.
+function optionsFromEnv(env) {
+  const options = {
+    telegram_bot_token: env.TELEGRAM_BOT_TOKEN,
+    // Split here rather than leaning on the pre-2.0.0 comma-separated shim,
+    // which would log an upgrade warning that means nothing in this runtime.
+    allowed_chat_ids: (env.ALLOWED_CHAT_IDS || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  };
+
+  if (env.LOW_BATTERY_THRESHOLD_PERCENT !== undefined) {
+    options.low_battery_threshold_percent = env.LOW_BATTERY_THRESHOLD_PERCENT;
+  }
+
+  return options;
+}
+
 function defaultReadFile(path) {
   return fs.readFileSync(path, "utf8");
 }
 
-function requireEnv(env, name) {
+function requireEnv(env, name, advice) {
   const value = env[name];
 
   if (!value) {
-    throw new Error(`Missing ${name}. Check homeassistant_api: true in config.yaml.`);
+    throw new Error(`Missing ${name}. ${advice}`);
   }
 
   return value;
@@ -151,15 +197,48 @@ function buildOptionFields(options) {
   ];
 }
 
+function homeAssistantAccess(runtime, env) {
+  if (runtime === RUNTIME_ADDON) {
+    return {
+      token: requireEnv(env, "SUPERVISOR_TOKEN", "Check homeassistant_api: true in config.yaml."),
+      baseUrl: env.HA_BASE_URL || HA_DEFAULT_BASE_URL,
+    };
+  }
+
+  return {
+    token: requireEnv(
+      env,
+      "HA_TOKEN",
+      "Create a long-lived access token in your Home Assistant profile and set HA_TOKEN.",
+    ),
+    // No default outside the add-on: the Supervisor proxy address only resolves
+    // inside Home Assistant, so silently falling back to it would fail with a
+    // DNS error that says nothing about the real mistake.
+    baseUrl: requireEnv(
+      env,
+      "HA_BASE_URL",
+      "Set it to your Home Assistant API URL, for example http://192.168.1.50:8123/api",
+    ),
+  };
+}
+
 // loadConfig is the single authorized entry point for reading process.env;
 // every other module receives config through injected parameters (see
 // design Decision 2).
 // biome-ignore lint/style/noProcessEnv: authorized single entry point, see comment above
 export function loadConfig({ env = process.env, readFile = defaultReadFile } = {}) {
-  const optionsPath = env.OPTIONS_PATH || "/data/options.json";
-  console.log(`Loading options from ${optionsPath}...`);
-  const options = JSON.parse(readFile(optionsPath));
-  console.log("Options loaded successfully.");
+  const runtime = detectRuntime(env);
+  let options;
+
+  if (runtime === RUNTIME_ADDON) {
+    const optionsPath = env.OPTIONS_PATH || "/data/options.json";
+    console.log(`Running as a Home Assistant add-on. Loading options from ${optionsPath}...`);
+    options = JSON.parse(readFile(optionsPath));
+    console.log("Options loaded successfully.");
+  } else {
+    console.log("Running standalone. Loading options from the environment...");
+    options = optionsFromEnv(env);
+  }
 
   const fields = buildOptionFields(options);
   const errors = fields
@@ -167,22 +246,35 @@ export function loadConfig({ env = process.env, readFile = defaultReadFile } = {
     .map((field) => `${field.name}: ${field.message}`);
 
   if (errors.length) {
-    throw new Error(`Invalid add-on configuration — ${errors.join("; ")}`);
+    const source =
+      runtime === RUNTIME_ADDON
+        ? "Invalid add-on configuration"
+        : "Invalid environment configuration";
+    throw new Error(`${source} — ${errors.join("; ")}`);
   }
 
   const [telegramToken, allowedChatIds, lowBattery] = fields.map((field) => field.read());
-  const supervisorToken = requireEnv(env, "SUPERVISOR_TOKEN");
-  const baseUrl = env.HA_BASE_URL || HA_DEFAULT_BASE_URL;
+  const { token, baseUrl } = homeAssistantAccess(runtime, env);
 
   console.log(`Allowed chat IDs: ${allowedChatIds.length ? allowedChatIds.join(", ") : "(all)"}`);
   console.log(`Low battery threshold: ${lowBattery}%`);
 
   return Object.freeze({
+    runtime,
     telegram: Object.freeze({
       token: telegramToken,
       allowedChatIds: Object.freeze(allowedChatIds),
     }),
-    homeAssistant: Object.freeze({ baseUrl, token: supervisorToken }),
+    homeAssistant: Object.freeze({
+      baseUrl,
+      token,
+      // Home Assistant's media folder is mapped into the add-on container and
+      // reachable nowhere else: it is served through signed media-source URLs,
+      // so a bearer token is answered 403. Recorded video therefore exists only
+      // in the add-on runtime, and the bot must say so rather than offer a
+      // button that cannot work.
+      mediaAvailable: runtime === RUNTIME_ADDON,
+    }),
     thresholds: Object.freeze({ lowBattery }),
   });
 }
@@ -253,12 +345,14 @@ export async function bootstrap({
   const ha = createHaClient({
     baseUrl: config.homeAssistant.baseUrl,
     token: config.homeAssistant.token,
+    mediaAvailable: config.homeAssistant.mediaAvailable,
   });
 
   const bot = startBot({
     token: config.telegram.token,
     allowedChatIds: config.telegram.allowedChatIds,
     lowBatteryThreshold: config.thresholds.lowBattery,
+    cameraVideoAvailable: config.homeAssistant.mediaAvailable,
     ha,
   });
 

@@ -881,6 +881,74 @@ describe("createTelegramBot callback_query outer error handler", () => {
   });
 });
 
+describe("createTelegramBot camera video availability", () => {
+  const cameras = [makeCameraEntity("front")];
+
+  async function pickCamera({ cameraVideoAvailable }) {
+    const bot = new FakeTelegramBot();
+    const ha = createFakeHaClient({ states: cameras });
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      cameraVideoAvailable,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_pick:${entityToken("camera.front")}` }),
+    );
+
+    return { bot, ha };
+  }
+
+  it("offers the video button when running inside Home Assistant", async () => {
+    const { bot } = await pickCamera({ cameraVideoAvailable: true });
+
+    const rows = bot.editedTexts[0].options.reply_markup.inline_keyboard;
+    const payloads = rows.flat().map((button) => button.callback_data);
+    assert.ok(payloads.some((payload) => payload.startsWith("camera_vid")));
+  });
+
+  // A button that cannot work is worse than no button: standalone has no media
+  // mount, so a recorded clip could never be fetched.
+  it("omits the video button when running standalone", async () => {
+    const { bot } = await pickCamera({ cameraVideoAvailable: false });
+
+    const rows = bot.editedTexts[0].options.reply_markup.inline_keyboard;
+    const payloads = rows.flat().map((button) => button.callback_data);
+    assert.ok(!payloads.some((payload) => payload.startsWith("camera_vid")));
+    assert.ok(payloads.some((payload) => payload.startsWith("camera_img")));
+  });
+
+  it("explains why rather than failing when a stale video button is pressed", async () => {
+    const bot = new FakeTelegramBot();
+    const ha = createFakeHaClient({ states: cameras });
+
+    createTelegramBot({
+      token: "test-token",
+      allowedChatIds: [],
+      lowBatteryThreshold: 20,
+      ha,
+      cameraVideoAvailable: false,
+      createBot: () => bot,
+      logger: noopLogger,
+    });
+
+    await bot.emitEvent(
+      "callback_query",
+      makeCallbackQuery({ data: `camera_vid30:${entityToken("camera.front")}` }),
+    );
+
+    assert.strictEqual(ha.calls.recordCameraClip.length, 0);
+    assert.match(bot.answeredCallbacks[0].options.text, /only available when running inside/);
+  });
+});
+
 describe("createTelegramBot callback_data bounds", () => {
   // Telegram refuses a callback_data over 64 bytes and rejects the WHOLE
   // message when one button breaks it, so a single long entity ID used to make
